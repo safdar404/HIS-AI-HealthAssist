@@ -1,0 +1,263 @@
+import { SymptomDefinition } from '../types/clinical';
+
+export const SYMPTOM_DEFINITIONS: SymptomDefinition[] = [
+  // Cardiovascular
+  {
+    code: 'CV001',
+    name: 'Chest Discomfort / Heavy Sensation',
+    category: 'CARDIOVASCULAR',
+    description: 'Vague fullness, ache, or uncomfortable feeling in central chest region.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'CV002',
+    name: 'Chest Pain / Angina Quality',
+    category: 'CARDIOVASCULAR',
+    description: 'Acutely painful retrosternal or precordial discomfort.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'CV003',
+    name: 'Chest Pressure / Crushing Sensation',
+    category: 'CARDIOVASCULAR',
+    description: 'Severe tightness, feeling of heavy weight or constriction on chest.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'CV004',
+    name: 'Palpitations / Rapid Irregular Heartbeat',
+    category: 'CARDIOVASCULAR',
+    description: 'Awareness of rapid, fluttering, thumping, or irregular cardiac rhythm.',
+  },
+  {
+    code: 'CV005',
+    name: 'Shortness of Breath at Rest (Dyspnea)',
+    category: 'CARDIOVASCULAR',
+    description: 'Difficulty breathing or air hunger occurring without physical exertion.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'CV006',
+    name: 'Breathlessness on Exertion',
+    category: 'CARDIOVASCULAR',
+    description: 'Progressive shortness of breath provoked by minimal or moderate activity.',
+  },
+  {
+    code: 'CV007',
+    name: 'Bilateral Leg / Ankle Swelling (Edema)',
+    category: 'CARDIOVASCULAR',
+    description: 'Pitting or gravitational fluid accumulation in lower extremities.',
+  },
+  {
+    code: 'CV008',
+    name: 'Dizziness / Lightheadedness',
+    category: 'CARDIOVASCULAR',
+    description: 'Feeling faint, unsteady, or pre-syncopal episode.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'CV009',
+    name: 'Syncope / Fainting Episode',
+    category: 'CARDIOVASCULAR',
+    description: 'Transient sudden loss of consciousness followed by spontaneous recovery.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'CV010',
+    name: 'Cold Clammy Sweating (Diaphoresis)',
+    category: 'CARDIOVASCULAR',
+    description: 'Profuse unexplained cold perspiration associated with discomfort.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'CV011',
+    name: 'Unusual / Disproportionate Fatigue',
+    category: 'CARDIOVASCULAR',
+    description: 'Overwhelming tiredness not relieved by rest, limiting daily functioning.',
+  },
+  {
+    code: 'CV013',
+    name: 'Pain Radiating to Left Arm / Shoulder',
+    category: 'CARDIOVASCULAR',
+    description: 'Spread of discomfort or numbness down arm, elbow, or fingers.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'CV014',
+    name: 'Pain Radiating to Jaw / Neck / Throat',
+    category: 'CARDIOVASCULAR',
+    description: 'Radiation of thoracic discomfort into lower mandible or neck.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'CV015',
+    name: 'Pain Radiating to Interscapular Back',
+    category: 'CARDIOVASCULAR',
+    description: 'Discomfort tracking between shoulder blades or upper spine.',
+    isRedFlagCandidate: true,
+  },
+
+  // Neurological (Stroke & Acute Neuro)
+  {
+    code: 'NE001',
+    name: 'Sudden Facial Droop / Weakness',
+    category: 'NEUROLOGICAL',
+    description: 'Acute asymmetry of smile, eye drooping, or loss of nasolabial fold.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'NE002',
+    name: 'One-Sided Arm Weakness / Drift',
+    category: 'NEUROLOGICAL',
+    description: 'Acute unilateral upper limb paresis, inability to raise arm.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'NE003',
+    name: 'One-Sided Leg Weakness / Instability',
+    category: 'NEUROLOGICAL',
+    description: 'Acute unilateral lower limb weakness or dragging foot.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'NE004',
+    name: 'Hemisensory Numbness / Tingling',
+    category: 'NEUROLOGICAL',
+    description: 'Sudden loss of sensation or paresthesia affecting one side of body.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'NE005',
+    name: 'Speech Difficulty / Slurring / Aphasia',
+    category: 'NEUROLOGICAL',
+    description: 'Inability to articulate words clearly or understand spoken speech.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'NE006',
+    name: 'Acute Confusion / Disorientation',
+    category: 'NEUROLOGICAL',
+    description: 'Sudden cognitive disruption, loss of orientation to time/person/place.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'NE007',
+    name: 'Sudden Vision Loss / Monocular Blindness / Diplopia',
+    category: 'NEUROLOGICAL',
+    description: 'Sudden dark curtain, blurry field defect, or double vision.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'NE008',
+    name: 'Loss of Balance / Acute Ataxia',
+    category: 'NEUROLOGICAL',
+    description: 'Sudden inability to coordinate walking or stand upright.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'NE009',
+    name: 'Thunderclap / Severe Sudden Headache',
+    category: 'NEUROLOGICAL',
+    description: 'Worst headache of life reaching maximum peak intensity within seconds.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'NE011',
+    name: 'Altered / Depressed Consciousness',
+    category: 'NEUROLOGICAL',
+    description: 'Stupor, severe lethargy, unresponsiveness, or coma.',
+    isRedFlagCandidate: true,
+  },
+
+  // Respiratory
+  {
+    code: 'RS001',
+    name: 'Persistent Cough (> 2 weeks)',
+    category: 'RESPIRATORY',
+    description: 'Chronic subacute or prolonged cough needing investigation.',
+  },
+  {
+    code: 'RS004',
+    name: 'Severe Breathlessness / Air Hunger',
+    category: 'RESPIRATORY',
+    description: 'Marked respiratory distress, tachypnea, accessory muscle use.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'RS005',
+    name: 'Audible Wheezing / Stridor',
+    category: 'RESPIRATORY',
+    description: 'High-pitched whistling or musical sound during expiration/inspiration.',
+  },
+  {
+    code: 'RS008',
+    name: 'Hemoptysis (Coughing Blood)',
+    category: 'RESPIRATORY',
+    description: 'Expectoration of blood or blood-tinged sputum from pulmonary tract.',
+    isRedFlagCandidate: true,
+  },
+  {
+    code: 'RS009',
+    name: 'Fever with Productive Cough',
+    category: 'RESPIRATORY',
+    description: 'Pyrexia accompanied by purulent yellow/green sputum.',
+  },
+
+  // Diabetes & Metabolic
+  {
+    code: 'DM001',
+    name: 'Polydipsia (Excessive Thirst)',
+    category: 'METABOLIC',
+    description: 'Constant unquenchable thirst despite regular fluid intake.',
+  },
+  {
+    code: 'DM002',
+    name: 'Polyuria (Frequent Urination)',
+    category: 'METABOLIC',
+    description: 'High volume and frequent micturition, including nocturia.',
+  },
+  {
+    code: 'DM003',
+    name: 'Polyphagia (Increased Hunger)',
+    category: 'METABOLIC',
+    description: 'Excessive or voracious appetite accompanied by lack of satiety.',
+  },
+  {
+    code: 'DM004',
+    name: 'Unexplained Weight Loss',
+    category: 'METABOLIC',
+    description: 'Involuntary reduction in body weight without caloric restriction.',
+  },
+  {
+    code: 'DM006',
+    name: 'Transient Blurry Vision',
+    category: 'METABOLIC',
+    description: 'Fluctuating refractive blur related to osmotic lens shifts in hyperglycemia.',
+  },
+  {
+    code: 'DM007',
+    name: 'Slow-Healing Skin Wounds / Ulcers',
+    category: 'METABOLIC',
+    description: 'Delayed epithelialization of foot lesions or minor abrasions.',
+  },
+  {
+    code: 'DM009',
+    name: 'Distal Extremity Numbness / Burning (Neuropathy)',
+    category: 'METABOLIC',
+    description: 'Stocking-glove tingling, dysesthesia, or loss of protective sensation.',
+  },
+
+  // General
+  {
+    code: 'GN001',
+    name: 'High Fever (> 38.5°C / 101.3°F)',
+    category: 'GENERAL',
+    description: 'Significant core body temperature elevation with rigors.',
+  },
+  {
+    code: 'GN002',
+    name: 'Chronic Malaise & Prostration',
+    category: 'GENERAL',
+    description: 'Severe generalized weakness impeding self-care.',
+  },
+];

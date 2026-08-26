@@ -1,0 +1,6 @@
+{
+  "name": "HIS AI-HealthAssist",
+  "description": "Hospital Information System (HIS) & Clinical Decision Support with Real-Time GeoAI Public Health Surveillance, Patient Risk Stratification, and Triage Engine.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
