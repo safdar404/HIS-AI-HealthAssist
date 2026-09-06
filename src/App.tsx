@@ -8,6 +8,7 @@ import { GeoAICommandCenter } from './components/GeoAICommandCenter';
 import { MLModelRegistryView } from './components/MLModelRegistryView';
 import { ClinicalGuidelinesView } from './components/ClinicalGuidelinesView';
 import { AuditLogView } from './components/AuditLogView';
+import { LiveAIAgentView } from './components/LiveAIAgentView';
 import { EmergencyAlertBanner } from './components/EmergencyAlertBanner';
 import { FloatingActionButton } from './components/FloatingActionButton';
 import { Footer } from './components/Footer';
@@ -19,7 +20,13 @@ import { emergencyNotificationService } from './services/emergencyNotificationSe
 import { exportPatientAssessmentToPDF } from './utils/clinicalPdfExport';
 import { recordPatientView } from './utils/recentPatientsStorage';
 import { useAutoLogout } from './hooks/useAutoLogout';
+import {
+  clinicalProfileSync,
+  ClinicianProfile,
+  HospitalFacility,
+} from './services/clinicalProfileSyncService';
 import { ShieldAlert, RefreshCw } from 'lucide-react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('INTAKE');
@@ -30,6 +37,18 @@ export function App() {
     useState<PatientAssessmentRecord | null>(Object.values(SAMPLE_CASES)[0]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState<boolean>(false);
+
+  // Synchronized Clinician Profile & Health Facility
+  const [syncDoctor, setSyncDoctor] = useState<ClinicianProfile>(clinicalProfileSync.getActiveDoctor());
+  const [syncHospital, setSyncHospital] = useState<HospitalFacility>(clinicalProfileSync.getActiveHospital());
+
+  useEffect(() => {
+    const unsub = clinicalProfileSync.subscribe((doc, hosp) => {
+      setSyncDoctor(doc);
+      setSyncHospital(hosp);
+    });
+    return unsub;
+  }, []);
 
   // Auto-logout after 5 minutes of user inactivity (HIPAA §164.312)
   const {
@@ -48,11 +67,18 @@ export function App() {
     }
   }, [selectedAssessment]);
 
-  // Global High-Contrast Clinical Theme State (Light vs Night Shift Dark)
+  // Global High-Contrast Clinical Theme State (Light vs Night Shift Dark, synchronized per clinician profile)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('app_theme');
-    return saved === 'dark' ? 'dark' : 'light';
+    return clinicalProfileSync.getClinicianTheme();
   });
+
+  // Sync theme when active clinician profile changes
+  useEffect(() => {
+    const docTheme = clinicalProfileSync.getClinicianTheme(syncDoctor?.id);
+    if (docTheme && docTheme !== theme) {
+      setTheme(docTheme);
+    }
+  }, [syncDoctor?.id]);
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -60,11 +86,15 @@ export function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
-    localStorage.setItem('app_theme', theme);
-  }, [theme]);
+    clinicalProfileSync.setClinicianTheme(theme, syncDoctor?.id);
+  }, [theme, syncDoctor?.id]);
 
   const handleToggleTheme = () => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+    setTheme((prev) => {
+      const nextTheme = prev === 'light' ? 'dark' : 'light';
+      clinicalProfileSync.setClinicianTheme(nextTheme, syncDoctor?.id);
+      return nextTheme;
+    });
   };
 
   // Track emergency patient notifications to avoid duplicate triggers
@@ -210,13 +240,21 @@ export function App() {
     showToast(`✓ Updated patient ${updated.demographics.fullName}`);
   };
 
-  const handleImportRecords = (newRecords: PatientAssessmentRecord[]) => {
-    setAssessments((prev) => [...newRecords, ...prev]);
-    showToast(`✓ Imported ${newRecords.length} patient records into registry.`);
+  const handleImportRecords = (newRecords: PatientAssessmentRecord[], replaceAll?: boolean) => {
+    if (replaceAll) {
+      setAssessments(newRecords);
+    } else {
+      setAssessments((prev) => {
+        const idMap = new Map(prev.map((p) => [p.demographics.patientId, p]));
+        newRecords.forEach((r) => idMap.set(r.demographics.patientId, r));
+        return Array.from(idMap.values());
+      });
+    }
+    showToast(`✓ Synced ${newRecords.length} patient records into registry.`);
   };
 
   return (
-    <div className={`min-h-screen ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-100/70 text-slate-800'} flex flex-col font-sans antialiased`}>
+    <div className={`min-h-screen w-full max-w-full overflow-x-hidden ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-100/70 text-slate-800'} flex flex-col font-sans antialiased`}>
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-2xl border border-slate-700 flex items-center gap-2 animate-fade-in">
@@ -251,6 +289,41 @@ export function App() {
         emergencyCount={emergencyCount}
         totalAssessments={assessments.length}
         assessments={assessments}
+        selectedAssessment={selectedAssessment}
+        onNewIntake={() => {
+          setActiveTab('INTAKE');
+          showToast('Opened New Patient Intake Assessment Wizard');
+        }}
+        onLaunchCalculators={() => {
+          setActiveTab('CALCULATORS');
+          showToast('Point-of-Care Clinical Calculators Active');
+        }}
+        onOpenSearch={() => {
+          const input = document.getElementById('header-global-search-input');
+          if (input) {
+            input.focus();
+            showToast('Global Patient Search Focused (Type Name or MRN)');
+          } else {
+            const mobileTrigger = document.getElementById('header-mobile-search-trigger');
+            if (mobileTrigger) {
+              mobileTrigger.click();
+            } else {
+              setActiveTab('REGISTRY');
+            }
+          }
+        }}
+        onDownloadReport={() => {
+          if (selectedAssessment) {
+            exportPatientAssessmentToPDF(selectedAssessment);
+            showToast(`✓ Downloading PDF Report for ${selectedAssessment.demographics.fullName}`);
+          } else {
+            showToast('No active patient selected for report download.');
+          }
+        }}
+        onEmergencyDispatch={() => {
+          setActiveTab('GEO_AI');
+          showToast('Emergency EMS 1122 Dispatch & Surveillance Node Opened');
+        }}
         theme={theme}
         onToggleTheme={handleToggleTheme}
         onOpenMobileDrawer={() => setMobileDrawerOpen(true)}
@@ -273,12 +346,17 @@ export function App() {
       />
 
       {/* Main Viewport Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* 1. Patient Intake & Triage Wizard */}
-        {activeTab === 'INTAKE' && (
+      <main className="flex-1 max-w-[1600px] w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
+        <ErrorBoundary
+          title="Clinical View Intercept"
+          description="An unexpected error occurred within this clinical view. You can retry this view or navigate to other sections without losing your session data."
+        >
+          {/* 1. Patient Intake & Triage Wizard */}
+          {activeTab === 'INTAKE' && (
           <PatientIntakeWizard
             onAssessmentCompleted={handleAssessmentCompleted}
             onSelectSampleCase={handleSelectSampleCase}
+            assessments={assessments}
           />
         )}
 
@@ -289,6 +367,30 @@ export function App() {
             selectedAssessment={selectedAssessment}
             onSelectAssessment={(record) => setSelectedAssessment(record)}
             onSaveDoctorReview={handleSaveDoctorReview}
+            onNavigateTab={(tab) => setActiveTab(tab as any)}
+            onUpdateAssessment={(updated) => {
+              setAssessments((prev) =>
+                prev.map((a) =>
+                  a.demographics.patientId === updated.demographics.patientId ? updated : a
+                )
+              );
+              setSelectedAssessment(updated);
+            }}
+          />
+        )}
+
+        {/* 2.5 Live AI Clinical & Hospital QA Agent */}
+        {activeTab === 'AI_AGENT' && (
+          <LiveAIAgentView
+            currentPatient={selectedAssessment}
+            onSelectDoctorForCase={(doc) => {
+              showToast(`Assigned ${doc.name} (${doc.hospitalName}) to active case`);
+              setActiveTab('DOCTOR_CDS');
+            }}
+            onSelectHospitalForReferral={(hosp) => {
+              showToast(`Selected ${hosp.name} (${hosp.city}) for emergency referral`);
+              setActiveTab('DOCTOR_CDS');
+            }}
           />
         )}
 
@@ -311,7 +413,12 @@ export function App() {
         {activeTab === 'CALCULATORS' && <ClinicalCalculatorsView />}
 
         {/* 5. GeoAI Pakistan Public Health Surveillance & Population Pyramid */}
-        {activeTab === 'GEO_AI' && <GeoAICommandCenter assessments={assessments} />}
+        {activeTab === 'GEO_AI' && (
+          <GeoAICommandCenter
+            assessments={assessments}
+            activePatient={selectedAssessment || assessments[0]}
+          />
+        )}
 
         {/* 6. Machine Learning Model Registry & Fairness */}
         {activeTab === 'ML_REGISTRY' && <MLModelRegistryView />}
@@ -319,8 +426,9 @@ export function App() {
         {/* 7. Clinical Guidelines & Compendium */}
         {activeTab === 'GUIDELINES' && <ClinicalGuidelinesView />}
 
-        {/* 8. Audit Trail & Regulatory Logs */}
-        {activeTab === 'AUDIT_LOGS' && <AuditLogView />}
+          {/* 8. Audit Trail & Regulatory Logs */}
+          {activeTab === 'AUDIT_LOGS' && <AuditLogView />}
+        </ErrorBoundary>
       </main>
 
       {/* Collapsible Mobile Navigation Drawer for Emergency Field Visits */}
@@ -331,8 +439,8 @@ export function App() {
         setActiveTab={setActiveTab}
         emergencyCount={emergencyCount}
         totalAssessments={assessments.length}
-        facility="JPMC / National Tele-Triage Node"
-        attendingDoctor="Dr. Asim Farooq, MD, FCPS"
+        facility={syncHospital.name}
+        attendingDoctor={`${syncDoctor.name}, ${syncDoctor.qualifications}`}
         theme={theme}
         onToggleTheme={handleToggleTheme}
         isAudioMuted={emergencyNotificationService.isMuted()}
@@ -364,11 +472,11 @@ export function App() {
           }}
           onAuthenticated={() => {
             unlockSession();
-            showToast('✓ Session Unlocked. Welcome back, Dr. Asim Farooq.');
+            showToast(`✓ Session Unlocked. Welcome back, ${syncDoctor.name}.`);
           }}
           patientRecord={selectedAssessment}
-          doctorName="Dr. Asim Farooq, MD, FCPS"
-          doctorLicenseNo="PMDC-58921-P"
+          doctorName={syncDoctor.name}
+          doctorLicenseNo={syncDoctor.licenseNo}
           title="Session Inactivity Auto-Lockout"
           subtitle="HIPAA §164.312(a)(2)(iii) Security Enforcement"
         />
@@ -379,6 +487,10 @@ export function App() {
         onNewIntake={() => {
           setActiveTab('INTAKE');
           showToast('Opened New Patient Intake Assessment Wizard');
+        }}
+        onLaunchAIAgent={() => {
+          setActiveTab('AI_AGENT');
+          showToast('Opened Live AI Clinical Agent & Hospitals Roster');
         }}
         onLaunchCalculators={() => {
           setActiveTab('CALCULATORS');
@@ -420,4 +532,16 @@ export function App() {
   );
 }
 
-export default App;
+export function AppWithBoundary() {
+  return (
+    <ErrorBoundary
+      title="Application Error Intercept"
+      description="An unexpected application-level error occurred. Your clinical data in local storage and active patient registry remain safe."
+      showHomeButton={true}
+    >
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+export default AppWithBoundary;

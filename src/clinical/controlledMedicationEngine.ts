@@ -96,7 +96,8 @@ export function performMedicationSafetyCheck(
   }
 
   // 1. Allergy check
-  const allergiesLower = profile.drugAllergies.map((a) => a.toLowerCase());
+  const drugAllergiesList = Array.isArray(profile.drugAllergies) ? profile.drugAllergies : [];
+  const allergiesLower = drugAllergiesList.map((a) => a.toLowerCase());
   const drugNameLower = drugInfo.genericName.toLowerCase();
   const drugClassLower = drugInfo.drugClass.toLowerCase();
 
@@ -109,7 +110,7 @@ export function performMedicationSafetyCheck(
 
   if (isAllergic) {
     contraindications.push(
-      `🚨 CRITICAL ALLERGY: Patient has documented hypersensitivity/allergy matching ${drugInfo.genericName} (${profile.drugAllergies.join(', ')})!`
+      `🚨 CRITICAL ALLERGY: Patient has documented hypersensitivity/allergy matching ${drugInfo.genericName} (${drugAllergiesList.join(', ')})!`
     );
   }
 

@@ -12,6 +12,7 @@ import {
   FileText,
   Sparkles,
   Zap,
+  Bot,
 } from 'lucide-react';
 
 interface FloatingActionButtonProps {
@@ -20,6 +21,7 @@ interface FloatingActionButtonProps {
   onOpenSearch: () => void;
   onDownloadReport: () => void;
   onEmergencyHotlines: () => void;
+  onLaunchAIAgent?: () => void;
   hasActivePatient: boolean;
   activePatientName?: string;
   emergencyCount?: number;
@@ -31,6 +33,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
   onOpenSearch,
   onDownloadReport,
   onEmergencyHotlines,
+  onLaunchAIAgent,
   hasActivePatient,
   activePatientName,
   emergencyCount = 0,
@@ -66,6 +69,12 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
         e.preventDefault();
         onNewIntake();
         setIsOpen(false);
+      } else if (e.altKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        if (onLaunchAIAgent) {
+          onLaunchAIAgent();
+          setIsOpen(false);
+        }
       } else if (e.altKey && (e.key === 'c' || e.key === 'C')) {
         e.preventDefault();
         onLaunchCalculators();
@@ -87,7 +96,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onNewIntake, onLaunchCalculators, onOpenSearch, onDownloadReport, hasActivePatient]);
+  }, [isOpen, onNewIntake, onLaunchCalculators, onOpenSearch, onDownloadReport, onLaunchAIAgent, hasActivePatient]);
 
   return (
     <div ref={fabRef} className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2.5 print:hidden">
@@ -98,9 +107,6 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
           <div className="flex items-center gap-2.5 group">
             <span className="bg-slate-900/90 text-white text-[11px] font-bold px-2.5 py-1 rounded-xl shadow-lg border border-slate-700 whitespace-nowrap opacity-95 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
               <span>New Patient Intake</span>
-              <kbd className="bg-slate-800 text-cyan-300 px-1.5 py-0.5 rounded text-[9px] font-mono border border-slate-700">
-                Alt+N
-              </kbd>
             </span>
             <button
               id="fab-action-new-intake"
@@ -115,13 +121,30 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
             </button>
           </div>
 
+          {/* Action 1.5: Live AI Agent & Hospitals */}
+          {onLaunchAIAgent && (
+            <div className="flex items-center gap-2.5 group">
+              <span className="bg-slate-900/90 text-white text-[11px] font-bold px-2.5 py-1 rounded-xl shadow-lg border border-slate-700 whitespace-nowrap opacity-95 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
+                <span>AI Clinical Agent & Hospitals</span>
+              </span>
+              <button
+                id="fab-action-ai-agent"
+                onClick={() => {
+                  onLaunchAIAgent();
+                  setIsOpen(false);
+                }}
+                className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white flex items-center justify-center shadow-lg shadow-cyan-900/40 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                title="Launch Live AI Agent & Hospital Directory"
+              >
+                <Bot className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Action 2: Launch Emergency / Point-of-Care Calculator */}
           <div className="flex items-center gap-2.5 group">
             <span className="bg-slate-900/90 text-white text-[11px] font-bold px-2.5 py-1 rounded-xl shadow-lg border border-slate-700 whitespace-nowrap opacity-95 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
               <span>Clinical Calculators (CVD/eGFR/BMI)</span>
-              <kbd className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded text-[9px] font-mono border border-slate-700">
-                Alt+C
-              </kbd>
             </span>
             <button
               id="fab-action-calculators"
@@ -140,9 +163,6 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
           <div className="flex items-center gap-2.5 group">
             <span className="bg-slate-900/90 text-white text-[11px] font-bold px-2.5 py-1 rounded-xl shadow-lg border border-slate-700 whitespace-nowrap opacity-95 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
               <span>Global Patient Search</span>
-              <kbd className="bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded text-[9px] font-mono border border-slate-700">
-                Alt+S
-              </kbd>
             </span>
             <button
               id="fab-action-search"
@@ -162,9 +182,6 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
             <div className="flex items-center gap-2.5 group">
               <span className="bg-slate-900/90 text-white text-[11px] font-bold px-2.5 py-1 rounded-xl shadow-lg border border-slate-700 whitespace-nowrap opacity-95 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
                 <span>Download Report ({activePatientName || 'Active Patient'})</span>
-                <kbd className="bg-slate-800 text-emerald-300 px-1.5 py-0.5 rounded text-[9px] font-mono border border-slate-700">
-                  Alt+D
-                </kbd>
               </span>
               <button
                 id="fab-action-download-pdf"

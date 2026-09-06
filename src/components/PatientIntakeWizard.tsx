@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   PatientDemographics,
   ClinicalProfile,
@@ -9,6 +9,7 @@ import {
 } from '../types/clinical';
 import { SYMPTOM_DEFINITIONS } from '../clinical/symptomDatabase';
 import { evaluateRedFlags } from '../clinical/safetyEngine';
+import { performFullClinicalAnalysis } from '../clinical/mlRiskEngine';
 import { PAKISTAN_DISTRICTS_DATA } from '../data/geoDistrictData';
 import { SAMPLE_CASES } from '../data/samplePatientCases';
 import {
@@ -24,19 +25,35 @@ import {
   CheckCircle2,
   AlertTriangle,
   Info,
+  Save,
+  RotateCcw,
+  Clock,
+  Check,
+  Mic,
+  History,
 } from 'lucide-react';
+import { VitalsHistoryTable } from './VitalsHistoryTable';
+import { VoiceClinicalNotesInput } from './VoiceClinicalNotesInput';
+
+const INTAKE_DRAFT_KEY = 'patient_intake_wizard_draft_v2026';
 
 interface PatientIntakeWizardProps {
   onAssessmentCompleted: (record: PatientAssessmentRecord) => void;
   onSelectSampleCase: (caseKey: string) => void;
+  assessments?: PatientAssessmentRecord[];
 }
 
 export const PatientIntakeWizard: React.FC<PatientIntakeWizardProps> = ({
   onAssessmentCompleted,
   onSelectSampleCase,
+  assessments = [],
 }) => {
   const [step, setStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastAutoSavedTime, setLastAutoSavedTime] = useState<string | null>(null);
+  const [hasRestoredDraft, setHasRestoredDraft] = useState<boolean>(false);
+  const [draftTimestamp, setDraftTimestamp] = useState<string | null>(null);
+  const [isDraftSavedPulse, setIsDraftSavedPulse] = useState<boolean>(false);
 
   // Form State
   const [demographics, setDemographics] = useState<PatientDemographics>({
@@ -126,6 +143,176 @@ export const PatientIntakeWizard: React.FC<PatientIntakeWizardProps> = ({
   });
 
   const [selectedSymptomCategory, setSelectedSymptomCategory] = useState<string>('ALL');
+  const [clinicalNotes, setClinicalNotes] = useState<string>('');
+  const [isReturningPatient, setIsReturningPatient] = useState<boolean>(false);
+  const [vitalsHistoryBaselineApplied, setVitalsHistoryBaselineApplied] = useState<string | null>(null);
+
+  // Load Saved Draft from LocalStorage on Component Mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(INTAKE_DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.demographics) setDemographics(parsed.demographics);
+        if (parsed.profile) setProfile(parsed.profile);
+        if (parsed.vitals) setVitals(parsed.vitals);
+        if (parsed.symptoms) setSymptoms(parsed.symptoms);
+        if (parsed.labs) setLabs(parsed.labs);
+        if (parsed.clinicalNotes) setClinicalNotes(parsed.clinicalNotes);
+        if (parsed.step && typeof parsed.step === 'number') setStep(parsed.step);
+        if (parsed.timestamp) {
+          setDraftTimestamp(new Date(parsed.timestamp).toLocaleTimeString());
+          setLastAutoSavedTime(new Date(parsed.timestamp).toLocaleTimeString());
+        }
+        setHasRestoredDraft(true);
+      }
+    } catch (e) {
+      console.warn('Failed to parse patient intake draft from localStorage', e);
+    }
+  }, []);
+
+  // Save Draft Helper
+  const saveDraftToStorage = () => {
+    try {
+      const nowStr = new Date().toLocaleTimeString();
+      const draftData = {
+        demographics,
+        profile,
+        vitals,
+        symptoms,
+        labs,
+        clinicalNotes,
+        step,
+        timestamp: new Date().toISOString(),
+      };
+      localStorage.setItem(INTAKE_DRAFT_KEY, JSON.stringify(draftData));
+      setLastAutoSavedTime(nowStr);
+      setIsDraftSavedPulse(true);
+      setTimeout(() => setIsDraftSavedPulse(false), 2000);
+    } catch (e) {
+      console.error('Failed to auto-save intake draft', e);
+    }
+  };
+
+  // Auto-Save Effect: Runs periodically every 30 seconds to prevent data loss
+  useEffect(() => {
+    const timer = setInterval(() => {
+      saveDraftToStorage();
+    }, 30000); // exactly 30 seconds
+
+    return () => clearInterval(timer);
+  }, [demographics, profile, vitals, symptoms, labs, clinicalNotes, step]);
+
+  // Handle applying longitudinal baseline vitals
+  const handleApplyHistoricalVitals = (historicalVitals: Partial<VitalSigns>) => {
+    setVitals((prev) => ({
+      ...prev,
+      systolicBp: historicalVitals.systolicBp !== undefined ? historicalVitals.systolicBp : prev.systolicBp,
+      diastolicBp: historicalVitals.diastolicBp !== undefined ? historicalVitals.diastolicBp : prev.diastolicBp,
+      heartRate: historicalVitals.heartRate !== undefined ? historicalVitals.heartRate : prev.heartRate,
+      oxygenSaturation: historicalVitals.oxygenSaturation !== undefined ? historicalVitals.oxygenSaturation : prev.oxygenSaturation,
+      bloodGlucoseMgDl: historicalVitals.bloodGlucoseMgDl !== undefined ? historicalVitals.bloodGlucoseMgDl : prev.bloodGlucoseMgDl,
+      measurementTime: new Date().toISOString(),
+    }));
+    setVitalsHistoryBaselineApplied(
+      `Applied historical vitals baseline: BP ${historicalVitals.systolicBp}/${historicalVitals.diastolicBp} mmHg, HR ${historicalVitals.heartRate} bpm, SpO₂ ${historicalVitals.oxygenSaturation}%.`
+    );
+    setTimeout(() => setVitalsHistoryBaselineApplied(null), 5000);
+  };
+
+  // Clear Draft and Reset to Factory Baseline
+  const handleClearDraft = () => {
+    try {
+      localStorage.removeItem(INTAKE_DRAFT_KEY);
+      setHasRestoredDraft(false);
+      setLastAutoSavedTime(null);
+      setDraftTimestamp(null);
+      setStep(1);
+      setDemographics({
+        patientId: `P-PK-${Math.floor(1000 + Math.random() * 9000)}`,
+        mrn: `MRN-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+        fullName: '',
+        age: 52,
+        sex: 'MALE',
+        phone: '',
+        province: 'Punjab',
+        district: 'Lahore',
+        tehsil: 'Model Town',
+        unionCouncil: 'UC-12',
+        emergencyContact: '',
+        consentGiven: true,
+      });
+      setProfile({
+        heightCm: 170,
+        weightKg: 78,
+        bmi: 27.0,
+        smokingStatus: 'CURRENT_SMOKER',
+        tobaccoUse: 'NONE',
+        physicalActivity: 'MODERATE',
+        pregnancyStatus: 'NOT_APPLICABLE',
+        previousCVD: false,
+        previousStroke: false,
+        diabetesHistory: false,
+        hypertensionHistory: true,
+        kidneyDisease: false,
+        liverDisease: false,
+        asthmaCOPD: false,
+        familyHistoryCVD: true,
+        familyHistoryDiabetes: true,
+        familyHistoryStroke: false,
+        currentMedications: ['Amlodipine 5mg'],
+        drugAllergies: [],
+      });
+      setVitals({
+        systolicBp: 148,
+        diastolicBp: 92,
+        heartRate: 82,
+        respiratoryRate: 16,
+        temperatureC: 36.8,
+        oxygenSaturation: 97,
+        bloodGlucoseMgDl: 160,
+        glucoseMeasurementType: 'FASTING',
+        measurementSource: 'CLINIC_DEVICE',
+        qualityFlag: 'VALID',
+        measurementTime: new Date().toISOString(),
+      });
+      setSymptoms([
+        {
+          code: 'CV001',
+          name: 'Chest Discomfort / Heavy Sensation',
+          category: 'CARDIOVASCULAR',
+          present: true,
+          severity: 3,
+          onset: 'GRADUAL',
+          duration: 'DAYS',
+          character: 'Dull ache after climbing stairs',
+          progression: 'STABLE',
+        },
+        {
+          code: 'CV006',
+          name: 'Breathlessness on Exertion',
+          category: 'CARDIOVASCULAR',
+          present: true,
+          severity: 2,
+          onset: 'GRADUAL',
+          duration: 'WEEKS',
+          progression: 'STABLE',
+        },
+      ]);
+      setLabs({
+        glucoseFastingMgDl: 155,
+        hba1cPercent: 7.2,
+        totalCholesterolMgDl: 220,
+        ldlCholesterolMgDl: 145,
+        hdlCholesterolMgDl: 39,
+        triglyceridesMgDl: 180,
+        creatinineMgDl: 1.1,
+        egfr: 78,
+      });
+    } catch (e) {
+      console.error('Failed to clear intake draft', e);
+    }
+  };
 
   // Calculate live BMI
   const updateHeightWeight = (height: number, weight: number) => {
@@ -183,15 +370,17 @@ export const PatientIntakeWizard: React.FC<PatientIntakeWizardProps> = ({
 
   const handleSubmitAssessment = async () => {
     setIsSubmitting(true);
+    const sanitizedDemographics: PatientDemographics = {
+      ...demographics,
+      fullName: demographics.fullName || `Patient-${demographics.patientId.slice(-4)}`,
+    };
+
     try {
       const response = await fetch('/api/assessment/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          demographics: {
-            ...demographics,
-            fullName: demographics.fullName || `Patient-${demographics.patientId.slice(-4)}`,
-          },
+          demographics: sanitizedDemographics,
           profile,
           vitals,
           labs,
@@ -201,8 +390,15 @@ export const PatientIntakeWizard: React.FC<PatientIntakeWizardProps> = ({
 
       const data = await response.json();
       if (data.success && data.assessment) {
+        // Clean up draft upon successful clinical submission
+        try {
+          localStorage.removeItem(INTAKE_DRAFT_KEY);
+        } catch (e) {
+          console.warn('Failed to clear intake draft', e);
+        }
+
         const fullRecord: PatientAssessmentRecord = {
-          demographics,
+          demographics: sanitizedDemographics,
           profile,
           vitals,
           labs,
@@ -210,9 +406,35 @@ export const PatientIntakeWizard: React.FC<PatientIntakeWizardProps> = ({
           assessmentResult: data.assessment,
         };
         onAssessmentCompleted(fullRecord);
+        return;
       }
+      throw new Error(data.error || 'Server calculation failed');
     } catch (err) {
-      console.error('Submission error:', err);
+      console.warn('Backend calculation unavailable, executing local clinical ML engine:', err);
+      // Clean up draft on local fallback completion
+      try {
+        localStorage.removeItem(INTAKE_DRAFT_KEY);
+      } catch (e) {
+        console.warn('Failed to clear intake draft', e);
+      }
+
+      // Resilient client-side fallback for offline/low-connectivity clinical field use
+      const localAssessment = performFullClinicalAnalysis(
+        sanitizedDemographics,
+        profile,
+        vitals,
+        labs,
+        symptoms
+      );
+      const fullRecord: PatientAssessmentRecord = {
+        demographics: sanitizedDemographics,
+        profile,
+        vitals,
+        labs,
+        symptoms,
+        assessmentResult: localAssessment,
+      };
+      onAssessmentCompleted(fullRecord);
     } finally {
       setIsSubmitting(false);
     }
@@ -225,6 +447,72 @@ export const PatientIntakeWizard: React.FC<PatientIntakeWizardProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Auto-Save & Draft Restored Status Banner */}
+      {hasRestoredDraft && (
+        <div className="bg-amber-50 border border-amber-300/80 rounded-2xl p-3.5 text-amber-900 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-amber-200/80 text-amber-900 flex items-center justify-center font-bold shrink-0">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-bold text-xs">Clinical Intake Draft Restored</span>
+              <p className="text-[11px] text-amber-800">
+                Unsaved intake data from a previous session ({draftTimestamp || 'recently'}) was recovered to prevent data loss.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            <button
+              id="btn-discard-draft"
+              onClick={handleClearDraft}
+              className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+              <span>Discard Draft</span>
+            </button>
+            <button
+              id="btn-dismiss-draft-banner"
+              onClick={() => setHasRestoredDraft(false)}
+              className="px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold transition-all cursor-pointer shadow-2xs"
+            >
+              Continue Working
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Save Indicator Bar */}
+      <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isDraftSavedPulse
+                  ? 'bg-emerald-500 ring-4 ring-emerald-200 transition-all'
+                  : 'bg-emerald-500'
+              }`}
+            />
+            {lastAutoSavedTime ? (
+              <span>
+                Auto-saved to local secure cache at <strong className="text-slate-700">{lastAutoSavedTime}</strong>
+              </span>
+            ) : (
+              <span>Auto-saving intake form every 30 seconds...</span>
+            )}
+          </span>
+        </div>
+
+        <button
+          id="btn-manual-save-draft"
+          onClick={saveDraftToStorage}
+          className="text-[11px] text-cyan-700 hover:text-cyan-900 font-bold flex items-center gap-1 bg-cyan-50 hover:bg-cyan-100/80 px-2.5 py-1 rounded-lg border border-cyan-200 transition-all cursor-pointer"
+          title="Force save form state to local cache"
+        >
+          <Save className="w-3 h-3 text-cyan-600" />
+          <span>Save Draft Now</span>
+        </button>
+      </div>
+
       {/* Quick Test Case Presets */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-4 border border-slate-700/70 shadow-lg">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
@@ -333,8 +621,8 @@ export const PatientIntakeWizard: React.FC<PatientIntakeWizardProps> = ({
       )}
 
       {/* Wizard Progress Steps */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-        <div className="flex items-center justify-between max-w-4xl mx-auto">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 sm:p-4">
+        <div className="flex items-center justify-between w-full max-w-5xl mx-auto overflow-x-auto no-scrollbar gap-2 sm:gap-4">
           {[
             { num: 1, title: 'Demographics & GIS', icon: User },
             { num: 2, title: 'Adaptive Symptoms', icon: Activity },
@@ -721,14 +1009,56 @@ export const PatientIntakeWizard: React.FC<PatientIntakeWizardProps> = ({
         {/* STEP 3: Vital Signs & Quality Flags */}
         {step === 3 && (
           <div className="space-y-6">
-            <div className="border-b border-slate-100 pb-3">
-              <h3 className="text-base font-bold text-slate-900">
-                Step 3: Vital Signs & Measurement Quality Indicators
-              </h3>
-              <p className="text-xs text-slate-500">
-                Accurate objective physiological metrics are critical for calibrated risk estimation.
-              </p>
+            <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Step 3: Vital Signs & Measurement Quality Indicators
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Accurate objective physiological metrics are critical for calibrated risk estimation.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  id="btn-toggle-returning-patient"
+                  onClick={() => setIsReturningPatient((prev) => !prev)}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
+                    isReturningPatient
+                      ? 'bg-cyan-50 border-cyan-300 text-cyan-800'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5 text-cyan-600" />
+                  <span>{isReturningPatient ? 'Returning Patient Mode' : 'Returning Patient?'}</span>
+                </button>
+              </div>
             </div>
+
+            {/* Baseline Application Notification Toast Banner */}
+            {vitalsHistoryBaselineApplied && (
+              <div
+                id="alert-vitals-baseline-applied"
+                className="bg-emerald-50 border border-emerald-300 rounded-xl p-3.5 flex items-center gap-3 text-xs text-emerald-900 animate-fade-in"
+              >
+                <div className="p-1.5 bg-emerald-200 text-emerald-800 rounded-lg">
+                  <Check className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <strong className="font-bold">Longitudinal Vitals Baseline Loaded:</strong>{' '}
+                  {vitalsHistoryBaselineApplied}
+                </div>
+              </div>
+            )}
+
+            {/* Longitudinal Vitals History Table for Returning Patients */}
+            <VitalsHistoryTable
+              patientId={demographics.patientId}
+              patientName={demographics.fullName || 'Tariq Mehmood'}
+              onApplyHistoricalVitals={handleApplyHistoricalVitals}
+              currentVitals={vitals}
+            />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Blood Pressure */}
@@ -1098,6 +1428,15 @@ export const PatientIntakeWizard: React.FC<PatientIntakeWizardProps> = ({
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none"
                 />
               </div>
+            </div>
+
+            {/* AI-Powered Voice Clinical Notes & Web Speech Dictation */}
+            <div className="pt-2 border-t border-slate-100">
+              <VoiceClinicalNotesInput
+                value={clinicalNotes}
+                onChange={setClinicalNotes}
+                placeholder="Click the microphone to dictate clinical history, presenting symptoms, cardiovascular risk factors, or examination findings in English or Urdu..."
+              />
             </div>
           </div>
         )}

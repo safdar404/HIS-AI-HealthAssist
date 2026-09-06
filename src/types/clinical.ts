@@ -184,6 +184,7 @@ export interface DoctorReview {
   assessmentId: string;
   doctorName: string;
   doctorLicenseNo: string;
+  doctorSpecialty?: string;
   facility: string;
   reviewTimestamp: string;
   aiAgreement: DoctorAgreement;
@@ -201,6 +202,22 @@ export interface DoctorReview {
   }[];
   referralRequired: boolean;
   referralFacility?: string;
+  whoHeartsGuidelineFollowed?: boolean;
+  doctorProfessionalFee?: number;
+  doctorSignatureSvg?: string;
+  signatureTimestamp?: string;
+}
+
+export interface AutomatedTriageEvent {
+  eventId: string;
+  timestamp: string;
+  previousLevel: TriageLevel;
+  newLevel: TriageLevel;
+  conditionDetected: string;
+  breachedMetrics: string[];
+  rationale: string;
+  triggerSource: 'BEDSIDE_QUICK_VITALS' | 'TELEMETRY_MONITOR' | 'REGISTRY_AUDIT';
+  escalated: boolean;
 }
 
 export interface PatientAssessmentRecord {
@@ -211,6 +228,8 @@ export interface PatientAssessmentRecord {
   labs: LabResults;
   assessmentResult?: AssessmentResult;
   doctorReview?: DoctorReview;
+  vitalsHistory?: VitalSigns[];
+  automatedTriageLog?: AutomatedTriageEvent;
 }
 
 export interface GeoDistrictHealthData {
@@ -252,4 +271,66 @@ export interface ModelBenchmarkData {
   prCurve: { recall: number; precision: number }[];
   calibrationCurve: { meanPredicted: number; observedFraction: number }[];
   featureImportance: { feature: string; importance: number }[];
+}
+
+export type HospitalType =
+  | 'FEDERAL_GOVT'
+  | 'PROVINCIAL_GOVT'
+  | 'SPECIALIZED_TERTIARY'
+  | 'TRUST_SEMI_GOVT'
+  | 'AUTONOMOUS_TEACHING';
+
+export interface HospitalFacility {
+  id: string;
+  name: string;
+  urduName: string;
+  type: HospitalType;
+  province: string;
+  district: string;
+  city: string;
+  address: string;
+  phoneEmergency: string;
+  phoneAmbulance: string;
+  phoneReception: string;
+  bedCapacity: number;
+  icuBeds: number;
+  ventilators: number;
+  erBedLoadPct: number;
+  sehatCardAccepted: boolean;
+  specialties: string[];
+  emergencyServices: string[];
+  latitude: number;
+  longitude: number;
+  establishedYear: number;
+  affiliatedUniversity: string;
+  status: 'NORMAL' | 'BUSY' | 'CRITICAL_CAPACITY';
+}
+
+export type DoctorShift = 'MORNING' | 'EVENING' | 'NIGHT_STAT' | 'ON_CALL';
+export type DoctorDutyStatus =
+  | 'ACTIVE_ON_DUTY'
+  | 'IN_RESUSCITATION'
+  | 'IN_OPERATION_THEATER'
+  | 'ON_CALL'
+  | 'ROUNDS';
+
+export interface DutyDoctor {
+  id: string;
+  name: string;
+  title: string;
+  qualifications: string;
+  pmdcNumber: string;
+  specialty: string;
+  subSpecialty?: string;
+  hospitalId: string;
+  hospitalName: string;
+  department: string;
+  shift: DoctorShift;
+  shiftTime: string;
+  dutyStatus: DoctorDutyStatus;
+  roomOrWard: string;
+  pagerExtension: string;
+  directEmergencyContact: string;
+  activePatientsInQueue: number;
+  languages: string[];
 }

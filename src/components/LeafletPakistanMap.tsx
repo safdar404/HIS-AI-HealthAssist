@@ -26,12 +26,13 @@ import {
 interface LeafletPakistanMapProps {
   selectedDistrict: LiveDistrictSurveillance;
   onSelectDistrict: (district: LiveDistrictSurveillance) => void;
-  selectedDiseaseLayer: 'CVD' | 'DIABETES' | 'HYPERTENSION' | 'RESPIRATORY' | 'HOTSPOTS' | 'AQI' | 'HOSPITALS';
+  selectedDiseaseLayer: 'CVD' | 'DIABETES' | 'HYPERTENSION' | 'RESPIRATORY' | 'HOTSPOTS' | 'AQI' | 'HOSPITALS' | 'REGIONAL_TRIAGE_HEATMAP' | 'TRIAGE_HEATMAP' | 'INFECTIOUS_OUTBREAK';
   onSelectDiseaseLayer: (layer: any) => void;
   showProvinces: boolean;
   showHospitals: boolean;
   showDistrictPolygons: boolean;
   liveAQIData?: Record<string, any>;
+  infectiousSurveillanceData?: Record<string, any>;
   onInspectHospital?: (hospital: HospitalGeoNode) => void;
 }
 
@@ -44,6 +45,7 @@ export const LeafletPakistanMap: React.FC<LeafletPakistanMapProps> = ({
   showHospitals,
   showDistrictPolygons,
   liveAQIData = {},
+  infectiousSurveillanceData = {},
   onInspectHospital,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -131,6 +133,24 @@ export const LeafletPakistanMap: React.FC<LeafletPakistanMapProps> = ({
 
     // Helper: Determine fill color based on current layer
     const getChoroplethColor = (district: LiveDistrictSurveillance) => {
+      if (selectedDiseaseLayer === 'INFECTIOUS_OUTBREAK') {
+        const outbreak = infectiousSurveillanceData?.[district.id];
+        const score = outbreak ? outbreak.outbreakScore : (district.hotspotGiScore > 2 ? 75 : 40);
+        if (score >= 70) return '#dc2626'; // Red 600 - Critical Outbreak Surge
+        if (score >= 50) return '#ea580c'; // Orange 600 - Elevated Outbreak Alert
+        if (score >= 35) return '#f59e0b'; // Amber 500 - Emerging Cluster
+        return '#059669'; // Emerald 600 - Baseline Endemic
+      }
+
+      if (selectedDiseaseLayer === 'REGIONAL_TRIAGE_HEATMAP' || selectedDiseaseLayer === 'TRIAGE_HEATMAP') {
+        const inflowScore = district.emergencyCasesCount * 1.5 + (district.highRiskCvdPct * 1.2);
+        if (inflowScore >= 120 || district.emergencyCasesCount >= 70) return '#ef4444'; // Red 600 - Critical Inflow Surge
+        if (inflowScore >= 85 || district.emergencyCasesCount >= 45) return '#f97316'; // Orange 500 - High Inflow Density
+        if (inflowScore >= 55 || district.emergencyCasesCount >= 25) return '#eab308'; // Amber 500 - Moderate Inflow
+        if (inflowScore >= 35) return '#06b6d4'; // Cyan 500 - Standard Triage
+        return '#10b981'; // Emerald 500 - Low Density
+      }
+
       if (selectedDiseaseLayer === 'HOTSPOTS') {
         if (district.hotspotClassification === 'HOTSPOT_99') return '#dc2626'; // Red 600
         if (district.hotspotClassification === 'HOTSPOT_95') return '#ea580c'; // Orange 600
@@ -200,8 +220,16 @@ export const LeafletPakistanMap: React.FC<LeafletPakistanMapProps> = ({
           fillOpacity: isSelected ? 0.35 : 0.2,
         });
 
+        const isTriageMode = selectedDiseaseLayer === 'REGIONAL_TRIAGE_HEATMAP' || selectedDiseaseLayer === 'TRIAGE_HEATMAP';
+        const isOutbreakMode = selectedDiseaseLayer === 'INFECTIOUS_OUTBREAK';
+        const outbreak = infectiousSurveillanceData?.[district.id];
+
         poly.bindTooltip(
-          `<strong>${district.districtName} (${district.province})</strong><br/><span style="font-size:10px; color:#94a3b8;">High Risk CVD: ${district.highRiskCvdPct}% | Gi* Z: +${district.hotspotGiScore.toFixed(2)}</span>`,
+          isOutbreakMode
+            ? `<strong>${district.districtName} (${district.province})</strong><br/><span style="font-size:10px; color:#f87171;">🦠 ${outbreak?.dominantPathogenSyndrome || 'Febrile Syndrome'} | Outbreak Index: ${outbreak?.outbreakScore ?? 65}/100 | Rt: ${outbreak?.effectiveRt ?? 1.4}</span>`
+            : isTriageMode
+            ? `<strong>${district.districtName} (${district.province})</strong><br/><span style="font-size:10px; color:#f87171;">Triage Inflow: ${district.emergencyCasesCount} Emergency Cases | Bed Load: ${district.hospitalBedLoadPct}%</span>`
+            : `<strong>${district.districtName} (${district.province})</strong><br/><span style="font-size:10px; color:#94a3b8;">High Risk CVD: ${district.highRiskCvdPct}% | Gi* Z: +${district.hotspotGiScore.toFixed(2)}</span>`,
           { sticky: true, className: 'leaflet-tooltip' }
         );
 
@@ -219,9 +247,12 @@ export const LeafletPakistanMap: React.FC<LeafletPakistanMapProps> = ({
       const color = getChoroplethColor(district);
       const isSelected = selectedDistrict.id === district.id;
       const isHotspot99 = district.hotspotClassification === 'HOTSPOT_99';
+      const isOutbreakMode = selectedDiseaseLayer === 'INFECTIOUS_OUTBREAK';
+      const outbreak = infectiousSurveillanceData?.[district.id];
+      const isCriticalOutbreak = isOutbreakMode && (outbreak?.outbreakSeverity === 'CRITICAL' || (outbreak?.outbreakScore ?? 0) >= 70);
 
-      // Outer radar pulse ring for 99% confidence hotspots
-      if (isHotspot99) {
+      // Outer radar pulse ring for 99% confidence hotspots or critical outbreak clusters
+      if (isHotspot99 || isCriticalOutbreak) {
         const radarCircle = L.circleMarker(district.coordinates, {
           radius: 26,
           color: '#ef4444',
@@ -243,19 +274,69 @@ export const LeafletPakistanMap: React.FC<LeafletPakistanMapProps> = ({
         fillOpacity: 0.9,
       });
 
+      const isTriageMode = selectedDiseaseLayer === 'REGIONAL_TRIAGE_HEATMAP' || selectedDiseaseLayer === 'TRIAGE_HEATMAP';
+
       // Rich HTML Popup
       const popupHtml = `
-        <div style="min-width: 240px; padding: 12px; font-family: ui-sans-serif, system-ui, sans-serif;">
+        <div style="min-width: 260px; padding: 12px; font-family: ui-sans-serif, system-ui, sans-serif;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; border-bottom: 1px solid #334155; padding-bottom: 6px;">
             <div>
               <span style="background: #0284c7; color: #ffffff; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">${district.province}</span>
               <h4 style="margin: 4px 0 0 0; font-size: 14px; font-weight: 800; color: #f8fafc;">${district.districtName}</h4>
             </div>
             <span style="font-size: 10px; font-weight: 800; color: ${color}; background: rgba(255,255,255,0.08); padding: 3px 6px; border-radius: 6px;">
-              ${district.hotspotClassification === 'HOTSPOT_99' ? '🚨 99% Hotspot' : district.hotspotClassification === 'HOTSPOT_95' ? '🔥 95% Hotspot' : 'Normal Cluster'}
+              ${isOutbreakMode ? `🦠 Outbreak ${outbreak?.outbreakSeverity || 'ALERT'}` : isTriageMode ? `🏥 Triage Density` : (district.hotspotClassification === 'HOTSPOT_99' ? '🚨 99% Hotspot' : district.hotspotClassification === 'HOTSPOT_95' ? '🔥 95% Hotspot' : 'Normal Cluster')}
             </span>
           </div>
 
+          ${isOutbreakMode ? `
+          <div style="margin-bottom: 8px;">
+            <div style="background: #1e1b4b; border: 1px solid #4338ca; padding: 7px; border-radius: 6px; font-size: 11px; margin-bottom: 6px;">
+              <span style="color: #a5b4fc; font-size: 9px; font-weight: 800; display: block; text-transform: uppercase;">Dominant Outbreak Pathogen</span>
+              <strong style="color: #ffffff; font-size: 12px;">${outbreak?.dominantPathogenSyndrome || 'Acute Febrile Syndrome'}</strong>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px;">
+              <div style="background: #1e293b; padding: 6px; border-radius: 6px;">
+                <span style="color: #94a3b8; font-size: 9px; display: block;">Outbreak Index</span>
+                <strong style="color: #ef4444; font-size: 13px;">${outbreak?.outbreakScore ?? 65}/100</strong>
+              </div>
+              <div style="background: #1e293b; padding: 6px; border-radius: 6px;">
+                <span style="color: #94a3b8; font-size: 9px; display: block;">Reproduction Rate Rt</span>
+                <strong style="color: #f59e0b; font-size: 13px;">${outbreak?.effectiveRt ?? 1.42}</strong>
+              </div>
+              <div style="background: #1e293b; padding: 6px; border-radius: 6px;">
+                <span style="color: #94a3b8; font-size: 9px; display: block;">Febrile Cases</span>
+                <strong style="color: #38bdf8; font-size: 13px;">${outbreak?.febrileCasesCount ?? 0} Cases</strong>
+              </div>
+              <div style="background: #1e293b; padding: 6px; border-radius: 6px;">
+                <span style="color: #94a3b8; font-size: 9px; display: block;">Dengue Signals</span>
+                <strong style="color: #ec4899; font-size: 13px;">${outbreak?.dengueSignalsCount ?? 0} Cases</strong>
+              </div>
+            </div>
+            <div style="background: #0f172a; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-size: 10px; color: #cbd5e1; margin-top: 6px;">
+              <span style="color: #38bdf8; font-weight: 700;">Countermeasure:</span> ${outbreak?.publicHealthCountermeasure || 'Active syndromic monitoring & bed readiness'}
+            </div>
+          </div>
+          ` : isTriageMode ? `
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px; margin-bottom: 8px;">
+            <div style="background: #1e293b; padding: 6px; border-radius: 6px;">
+              <span style="color: #94a3b8; font-size: 9px; display: block;">Emergency Load (L1/L2)</span>
+              <strong style="color: #ef4444; font-size: 13px;">${district.emergencyCasesCount} Cases</strong>
+            </div>
+            <div style="background: #1e293b; padding: 6px; border-radius: 6px;">
+              <span style="color: #94a3b8; font-size: 9px; display: block;">Bed Occupancy</span>
+              <strong style="color: #f59e0b; font-size: 13px;">${district.hospitalBedLoadPct}%</strong>
+            </div>
+            <div style="background: #1e293b; padding: 6px; border-radius: 6px;">
+              <span style="color: #94a3b8; font-size: 9px; display: block;">Screened Inflow</span>
+              <strong style="color: #38bdf8; font-size: 13px;">${district.screenedCount.toLocaleString()}</strong>
+            </div>
+            <div style="background: #1e293b; padding: 6px; border-radius: 6px;">
+              <span style="color: #94a3b8; font-size: 9px; display: block;">Avg Triage Wait</span>
+              <strong style="color: #10b981; font-size: 13px;">${Math.max(8, Math.round(district.emergencyCasesCount * 0.4))} mins</strong>
+            </div>
+          </div>
+          ` : `
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px; margin-bottom: 8px;">
             <div style="background: #1e293b; padding: 6px; border-radius: 6px;">
               <span style="color: #94a3b8; font-size: 9px; display: block;">CVD High Risk</span>
@@ -274,6 +355,7 @@ export const LeafletPakistanMap: React.FC<LeafletPakistanMapProps> = ({
               <strong style="color: #ef4444; font-size: 13px;">${district.emergencyCasesCount} Cases</strong>
             </div>
           </div>
+          `}
 
           <div style="background: #0f172a; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-size: 10px; color: #cbd5e1; margin-bottom: 8px;">
             <span style="color: #38bdf8; font-weight: 700;">Python XGBoost CVD Probability:</span> ${(district.mlModelMetrics.xgbCvdRiskProbability * 100).toFixed(1)}%<br/>
@@ -326,7 +408,7 @@ export const LeafletPakistanMap: React.FC<LeafletPakistanMapProps> = ({
         const hospMarker = L.marker(hosp.coordinates, { icon: hospitalDivIcon });
 
         const hospPopup = `
-          <div style="min-width: 220px; padding: 10px; font-family: ui-sans-serif, system-ui, sans-serif;">
+          <div style="min-width: 230px; padding: 10px; font-family: ui-sans-serif, system-ui, sans-serif;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
               <span style="font-size: 9px; font-weight: 800; background: ${hospColor}; color: white; padding: 2px 6px; border-radius: 4px;">
                 ${hosp.type}
@@ -339,10 +421,22 @@ export const LeafletPakistanMap: React.FC<LeafletPakistanMapProps> = ({
               <div><strong>Cardiac Cath Lab:</strong> ${hosp.cardiacCatheterizationLab ? '✅ 24/7 Operational' : '❌ Unavailable'}</div>
               <div><strong>Direct Line:</strong> <a href="tel:${hosp.contact}" style="color: #38bdf8; text-decoration: underline;">${hosp.contact}</a></div>
             </div>
+            <button id="btn-refer-${hosp.id}" style="width: 100%; margin-top: 8px; background: #059669; color: white; border: none; padding: 7px 10px; border-radius: 8px; font-weight: 700; font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
+              🚑 Initiate Referral Request &rarr;
+            </button>
           </div>
         `;
 
         hospMarker.bindPopup(hospPopup);
+        hospMarker.on('popupopen', () => {
+          const btn = document.getElementById(`btn-refer-${hosp.id}`);
+          if (btn) {
+            btn.onclick = () => {
+              if (onInspectHospital) onInspectHospital(hosp);
+              map.closePopup();
+            };
+          }
+        });
         hospMarker.on('click', () => {
           if (onInspectHospital) onInspectHospital(hosp);
         });
@@ -385,7 +479,12 @@ export const LeafletPakistanMap: React.FC<LeafletPakistanMapProps> = ({
   // Handle Locate User GPS
   const handleLocateUser = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
+      console.warn('Geolocation is not supported by this browser environment. Defaulting to national center.');
+      const defaultCoords: [number, number] = [33.6844, 73.0479];
+      setUserLocation(defaultCoords);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.flyTo(defaultCoords, 9, { duration: 1.5 });
+      }
       return;
     }
     setLocatingUser(true);

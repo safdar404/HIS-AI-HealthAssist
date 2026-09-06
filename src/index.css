@@ -1,5 +1,32 @@
 @import "tailwindcss";
 
+/* Global Overflow & Scrollbar Safeguards */
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
+}
+
+/* Custom sleek scrollbar for clinical dashboards */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
 /* Leaflet Map Custom Enhancements */
 .leaflet-container {
   font-family: inherit;
@@ -67,5 +94,180 @@
 
 .radar-ping {
   animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+/* ==========================================================================
+   DEDICATED CLINICAL PRINT CSS MEDIA QUERIES
+   Optimizes browser printing & PDF export for Patient Dossiers,
+   Doctor CDS Reviews, SOAP Notes, Lab Summaries, and Referral Sheets
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm 15mm 15mm;
+  }
+
+  /* Reset layout constraints & backgrounds */
+  *,
+  *::before,
+  *::after {
+    background: transparent !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 11pt !important;
+    line-height: 1.4 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide interactive web UI chrome, navigation, buttons, and decorative elements */
+  header,
+  footer,
+  nav,
+  aside,
+  button,
+  .no-print,
+  .fab-button,
+  .leaflet-control-container,
+  .recharts-legend-wrapper,
+  .speech-dictation-control,
+  .sub-tab-bar,
+  #bottom-floating-actions,
+  .modal-backdrop {
+    display: none !important;
+  }
+
+  /* Page break rules for clean multi-page clinical reports */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+    color: #0f172a !important;
+  }
+
+  p, blockquote, pre {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Avoid breaking inside cards, vitals grids, prescriptions, and signatures */
+  .print-avoid-break,
+  .clinical-dossier-card,
+  .doctor-review-summary,
+  .prescription-table-container,
+  .vitals-snapshot-block,
+  .doctor-signature-stamp-card,
+  tr,
+  figure,
+  table {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Borders & Table styling */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  th, td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 6px 10px !important;
+    font-size: 9.5pt !important;
+    background: #ffffff !important;
+  }
+
+  th {
+    background: #f1f5f9 !important;
+    font-weight: bold !important;
+    text-transform: uppercase !important;
+  }
+
+  /* Card outlines for printed documents */
+  .bg-white,
+  .bg-slate-900,
+  .bg-slate-950,
+  .bg-slate-50 {
+    background: #ffffff !important;
+    border: 1px solid #94a3b8 !important;
+    border-radius: 6px !important;
+  }
+
+  /* Triage Level Badges for printing */
+  .bg-red-600,
+  .bg-red-500,
+  .bg-rose-600 {
+    background: #fee2e2 !important;
+    color: #991b1b !important;
+    border: 1px solid #ef4444 !important;
+    font-weight: bold !important;
+  }
+
+  .bg-amber-500,
+  .bg-amber-600,
+  .bg-yellow-500 {
+    background: #fef3c7 !important;
+    color: #92400e !important;
+    border: 1px solid #f59e0b !important;
+    font-weight: bold !important;
+  }
+
+  .bg-emerald-500,
+  .bg-emerald-600,
+  .bg-green-600 {
+    background: #d1fae5 !important;
+    color: #065f46 !important;
+    border: 1px solid #10b981 !important;
+    font-weight: bold !important;
+  }
+
+  .bg-cyan-500,
+  .bg-cyan-600,
+  .bg-blue-600 {
+    background: #e0f2fe !important;
+    color: #0369a1 !important;
+    border: 1px solid #0ea5e9 !important;
+    font-weight: bold !important;
+  }
+
+  /* Force full width on printable content containers */
+  main,
+  .max-w-7xl,
+  .container {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Display print header with metadata if available */
+  .print-header {
+    display: block !important;
+    border-bottom: 2px solid #0f172a !important;
+    padding-bottom: 8px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .print-footer {
+    display: block !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-top: 1px solid #cbd5e1 !important;
+    font-size: 8pt !important;
+    color: #64748b !important;
+    text-align: center;
+    padding-top: 4px;
+  }
 }
 

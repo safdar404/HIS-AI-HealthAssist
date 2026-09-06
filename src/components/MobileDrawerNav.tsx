@@ -20,6 +20,7 @@ import {
   VolumeX,
   Lock,
   HeartPulse,
+  Bot,
 } from 'lucide-react';
 import { ActiveTab } from './Header';
 import { PatientAssessmentRecord } from '../types/clinical';
@@ -79,6 +80,14 @@ export const MobileDrawerNav: React.FC<MobileDrawerNavProps> = ({
       badge: totalAssessments,
       badgeColor: 'bg-emerald-950 text-emerald-300 border-emerald-700',
       description: 'Clinical decisions, medication checks & Rx sign-off',
+    },
+    {
+      id: 'AI_AGENT',
+      label: 'Live AI Agent & Hospitals Directory',
+      icon: <Bot className="w-5 h-5 text-cyan-300 animate-pulse" />,
+      badge: 'Live',
+      badgeColor: 'bg-cyan-950 text-cyan-300 border-cyan-700',
+      description: 'Clinical Q&A, Government hospitals & On-duty doctors',
     },
     {
       id: 'REGISTRY',

@@ -177,13 +177,22 @@ export function calculateCardiovascularRisk(
     });
   }
 
-  // BMI / Obesity
-  const bmi = profile.bmi || (profile.weightKg / Math.pow(profile.heightCm / 100, 2)) || 24;
-  if (bmi >= 30) {
+  // BMI / Obesity - with strict sanitization against unit confusion
+  let bmi = profile.bmi || 24;
+  if (bmi > 90 || bmi < 10) {
+    let h = profile.heightCm;
+    if (h > 0 && h <= 2.5) h = h * 100;
+    if (h >= 50 && h <= 250 && profile.weightKg >= 20 && profile.weightKg <= 250) {
+      bmi = Number((profile.weightKg / Math.pow(h / 100, 2)).toFixed(1));
+    } else {
+      bmi = 24.8;
+    }
+  }
+  if (bmi >= 27.5) {
     rawScore += 0.09;
     contributions.push({
       feature: 'Adiposity',
-      displayName: 'Obesity (South Asian BMI cut-off ≥27.5)',
+      displayName: 'Obesity (South Asian BMI cut-off >=27.5)',
       value: `BMI ${bmi.toFixed(1)}`,
       contributionPercent: 9,
       direction: 'RISK_INCREASE',
@@ -399,12 +408,21 @@ export function calculateDiabetesRisk(
     });
   }
 
-  const bmi = profile.bmi || 24;
+  let bmi = profile.bmi || 24;
+  if (bmi > 90 || bmi < 10) {
+    let h = profile.heightCm;
+    if (h > 0 && h <= 2.5) h = h * 100;
+    if (h >= 50 && h <= 250 && profile.weightKg >= 20 && profile.weightKg <= 250) {
+      bmi = Number((profile.weightKg / Math.pow(h / 100, 2)).toFixed(1));
+    } else {
+      bmi = 24.8;
+    }
+  }
   if (bmi >= 27.5) {
     rawScore += 0.14;
     contributions.push({
       feature: 'BMI / Adiposity',
-      displayName: 'Elevated South Asian BMI (≥27.5 kg/m²)',
+      displayName: 'Elevated South Asian BMI (>=27.5 kg/m²)',
       value: `${bmi.toFixed(1)} kg/m²`,
       contributionPercent: 14,
       direction: 'RISK_INCREASE',

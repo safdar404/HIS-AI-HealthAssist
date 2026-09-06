@@ -38,7 +38,13 @@ import {
   Radio,
   Share2,
   Users,
+  Biohazard,
+  Bug,
+  Thermometer,
+  Droplets,
+  Send,
 } from 'lucide-react';
+import { SimulatedReferralModal } from './SimulatedReferralModal';
 import {
   ResponsiveContainer,
   LineChart,
@@ -61,18 +67,28 @@ import {
 } from 'recharts';
 
 import { PopulationPyramid } from './PopulationPyramid';
+import { RiskHeatmapDashboard } from './RiskHeatmapDashboard';
+import { DistrictAgeDistributionChart } from './DistrictAgeDistributionChart';
 import { PatientAssessmentRecord } from '../types/clinical';
+import {
+  calculateInfectiousDiseaseHotspots,
+  DistrictInfectiousSurveillance,
+} from '../services/infectiousDiseaseHotspotService';
 
 interface GeoAICommandCenterProps {
   assessments?: PatientAssessmentRecord[];
+  activePatient?: PatientAssessmentRecord;
+  onInitiateReferral?: (hospital: HospitalGeoNode, patient: PatientAssessmentRecord) => void;
 }
 
 export const GeoAICommandCenter: React.FC<GeoAICommandCenterProps> = ({
   assessments = [],
+  activePatient,
+  onInitiateReferral,
 }) => {
   // 1. Navigation & Layer States
   const [selectedDiseaseLayer, setSelectedDiseaseLayer] = useState<
-    'CVD' | 'DIABETES' | 'HYPERTENSION' | 'RESPIRATORY' | 'HOTSPOTS' | 'AQI' | 'HOSPITALS'
+    'CVD' | 'DIABETES' | 'HYPERTENSION' | 'RESPIRATORY' | 'HOTSPOTS' | 'AQI' | 'HOSPITALS' | 'REGIONAL_TRIAGE_HEATMAP' | 'INFECTIOUS_OUTBREAK'
   >('CVD');
   const [selectedDistrict, setSelectedDistrict] = useState<LiveDistrictSurveillance>(
     REAL_PAKISTAN_DISTRICTS[0] // Default to Lahore
@@ -82,8 +98,35 @@ export const GeoAICommandCenter: React.FC<GeoAICommandCenterProps> = ({
   const [showHospitals, setShowHospitals] = useState<boolean>(true);
   const [showDistrictPolygons, setShowDistrictPolygons] = useState<boolean>(true);
   const [activeSubTab, setActiveSubTab] = useState<
-    'MAP_ANALYTICS' | 'POPULATION_PYRAMID' | 'AI_SHAP' | 'LIVE_STREAM' | 'SIMULATION'
+    'MAP_ANALYTICS' | 'NEARBY_FACILITIES' | 'RISK_HEATMAP' | 'POPULATION_PYRAMID' | 'AGE_DISTRIBUTION' | 'AI_SHAP' | 'LIVE_STREAM' | 'SIMULATION'
   >('MAP_ANALYTICS');
+
+  // Selected Hospital for Simulated Referral
+  const [selectedReferralHospital, setSelectedReferralHospital] = useState<HospitalGeoNode | null>(null);
+  const [activePatientId, setActivePatientId] = useState<string>(
+    activePatient?.demographics.patientId || (assessments[0]?.demographics.patientId ?? '')
+  );
+
+  const currentReferralPatient = useMemo(() => {
+    return (
+      assessments.find((a) => a.demographics.patientId === activePatientId) ||
+      activePatient ||
+      assessments[0]
+    );
+  }, [assessments, activePatientId, activePatient]);
+
+  // Compute district-level infectious disease outbreak signals based on intake symptom patterns
+  const infectiousSurveillance = useMemo(() => {
+    return calculateInfectiousDiseaseHotspots(assessments);
+  }, [assessments]);
+
+  // Ranked districts by infectious disease outbreak score
+  const rankedOutbreakDistricts = useMemo(() => {
+    return REAL_PAKISTAN_DISTRICTS.map((d) => ({
+      district: d,
+      surveillance: infectiousSurveillance[d.id],
+    })).sort((a, b) => (b.surveillance?.outbreakScore ?? 0) - (a.surveillance?.outbreakScore ?? 0));
+  }, [infectiousSurveillance]);
 
   // 2. Real-Time Telemetry & Live Streams
   const [liveAQIData, setLiveAQIData] = useState<Record<string, RealTimeDistrictTelemetry>>({});
@@ -327,6 +370,7 @@ export const GeoAICommandCenter: React.FC<GeoAICommandCenterProps> = ({
           {/* Sub-Tab Navigation Bar */}
           <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800 text-xs">
             <button
+              id="subtab-btn-map-analytics"
               onClick={() => setActiveSubTab('MAP_ANALYTICS')}
               className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeSubTab === 'MAP_ANALYTICS'
@@ -338,6 +382,31 @@ export const GeoAICommandCenter: React.FC<GeoAICommandCenterProps> = ({
               <span>Interactive Leaflet GIS</span>
             </button>
             <button
+              id="subtab-btn-nearby-facilities"
+              onClick={() => setActiveSubTab('NEARBY_FACILITIES')}
+              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeSubTab === 'NEARBY_FACILITIES'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Nearby Facilities & Referrals ({PAKISTAN_HOSPITALS.length})</span>
+            </button>
+            <button
+              id="subtab-btn-risk-heatmap"
+              onClick={() => setActiveSubTab('RISK_HEATMAP')}
+              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeSubTab === 'RISK_HEATMAP'
+                  ? 'bg-rose-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Flame className="w-3.5 h-3.5 text-rose-400" />
+              <span>Risk Heatmap</span>
+            </button>
+            <button
+              id="subtab-btn-population-pyramid"
               onClick={() => setActiveSubTab('POPULATION_PYRAMID')}
               className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeSubTab === 'POPULATION_PYRAMID'
@@ -347,6 +416,18 @@ export const GeoAICommandCenter: React.FC<GeoAICommandCenterProps> = ({
             >
               <Users className="w-3.5 h-3.5 text-rose-400" />
               <span>Age-Sex Pyramid</span>
+            </button>
+            <button
+              id="subtab-btn-age-distribution"
+              onClick={() => setActiveSubTab('AGE_DISTRIBUTION')}
+              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeSubTab === 'AGE_DISTRIBUTION'
+                  ? 'bg-cyan-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-cyan-300" />
+              <span>District Age Distribution</span>
             </button>
             <button
               onClick={() => setActiveSubTab('AI_SHAP')}
@@ -451,6 +532,8 @@ export const GeoAICommandCenter: React.FC<GeoAICommandCenterProps> = ({
                 <Layers className="w-3.5 h-3.5 text-cyan-600" /> Active Layer:
               </span>
               {[
+                { key: 'INFECTIOUS_OUTBREAK', label: '🦠 Infectious Outbreak Hotspots' },
+                { key: 'REGIONAL_TRIAGE_HEATMAP', label: '🚨 Regional Triage Inflow' },
                 { key: 'CVD', label: '❤️ CVD Risk' },
                 { key: 'DIABETES', label: '🧪 Diabetes' },
                 { key: 'HYPERTENSION', label: '🩸 Hypertension' },
@@ -530,6 +613,7 @@ export const GeoAICommandCenter: React.FC<GeoAICommandCenterProps> = ({
                 showHospitals={showHospitals}
                 showDistrictPolygons={showDistrictPolygons}
                 liveAQIData={liveAQIData}
+                infectiousSurveillanceData={infectiousSurveillance}
                 onInspectHospital={(h) => setSelectedHospitalModal(h)}
               />
             </div>
@@ -736,12 +820,519 @@ export const GeoAICommandCenter: React.FC<GeoAICommandCenterProps> = ({
               </div>
             </div>
           </div>
+
+          {/* INFECTIOUS DISEASE OUTBREAK HOTSPOTS LAYER & SYNDROMIC SURVEILLANCE PANEL */}
+          <div
+            id="infectious-disease-outbreak-panel"
+            className="bg-slate-900 rounded-2xl border border-slate-800 p-6 text-white shadow-xl space-y-6"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <Biohazard className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-black text-white tracking-tight">
+                      Infectious Disease Outbreak Hotspots & Syndromic Surveillance
+                    </h3>
+                    <span className="bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                      Live Intake Syndromic Engine
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Real-time detection of epidemic vectors (Dengue, AWD/Cholera, SARI, Typhoid, Malaria) derived from bedside vitals and acute intake symptom patterns across Pakistan districts.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  id="btn-toggle-outbreak-layer"
+                  onClick={() => setSelectedDiseaseLayer('INFECTIOUS_OUTBREAK')}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+                    selectedDiseaseLayer === 'INFECTIOUS_OUTBREAK'
+                      ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/40'
+                      : 'bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700'
+                  }`}
+                >
+                  <Flame className="w-4 h-4 text-rose-400" />
+                  <span>{selectedDiseaseLayer === 'INFECTIOUS_OUTBREAK' ? 'Outbreak Layer Active' : 'Activate Outbreak Map Layer'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Outbreak Surveillance Details Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Selected District Outbreak Dossier (5 Cols) */}
+              <div className="lg:col-span-5 bg-slate-950/80 rounded-xl border border-slate-800 p-5 space-y-4">
+                {(() => {
+                  const outData = infectiousSurveillance[selectedDistrict.id];
+                  const score = outData?.outbreakScore ?? 45;
+                  const severity = outData?.outbreakSeverity ?? 'BASELINE';
+                  const dominant = outData?.dominantPathogenSyndrome ?? 'Acute Febrile Syndrome';
+                  const rt = outData?.effectiveRt ?? 1.25;
+
+                  return (
+                    <>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <span className="text-[10px] font-mono uppercase text-slate-400 tracking-wider">
+                            District Outbreak Surveillance
+                          </span>
+                          <h4 className="text-lg font-black text-white mt-0.5">
+                            {selectedDistrict.districtName} ({selectedDistrict.province})
+                          </h4>
+                          <span className="text-xs text-slate-400">
+                            Dominant Syndrome: <strong className="text-cyan-400">{dominant}</strong>
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                            severity === 'CRITICAL'
+                              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
+                              : severity === 'ELEVATED'
+                              ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                              : severity === 'EMERGING'
+                              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                              : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          }`}
+                        >
+                          {severity} OUTBREAK
+                        </span>
+                      </div>
+
+                      {/* Outbreak Index Gauge Bar */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs font-semibold">
+                          <span className="text-slate-300">Outbreak Severity Index</span>
+                          <span className="font-mono text-rose-400 font-bold">{score} / 100</span>
+                        </div>
+                        <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              score >= 70
+                                ? 'bg-gradient-to-r from-rose-500 to-red-600'
+                                : score >= 50
+                                ? 'bg-gradient-to-r from-orange-500 to-amber-500'
+                                : 'bg-gradient-to-r from-teal-500 to-emerald-500'
+                            }`}
+                            style={{ width: `${score}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-[9px] text-slate-500 font-mono">
+                          <span>0 (Baseline)</span>
+                          <span>50 (Surge Alert)</span>
+                          <span>100 (Critical Epidemic)</span>
+                        </div>
+                      </div>
+
+                      {/* Syndromic Metrics Grid */}
+                      <div className="grid grid-cols-2 gap-2.5 text-xs">
+                        <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
+                          <div className="flex items-center gap-1.5 text-slate-400 text-[10px] mb-1">
+                            <Thermometer className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Febrile Inflow</span>
+                          </div>
+                          <div className="text-lg font-black font-mono text-amber-400">
+                            {outData?.febrileCasesCount ?? 0}
+                          </div>
+                          <span className="text-[9px] text-slate-500">T &ge; 38.3°C at intake</span>
+                        </div>
+
+                        <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
+                          <div className="flex items-center gap-1.5 text-slate-400 text-[10px] mb-1">
+                            <Bug className="w-3.5 h-3.5 text-rose-400" />
+                            <span>Dengue Signals</span>
+                          </div>
+                          <div className="text-lg font-black font-mono text-rose-400">
+                            {outData?.dengueSignalsCount ?? 0}
+                          </div>
+                          <span className="text-[9px] text-slate-500">Thrombocytopenia/Rash</span>
+                        </div>
+
+                        <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
+                          <div className="flex items-center gap-1.5 text-slate-400 text-[10px] mb-1">
+                            <Droplets className="w-3.5 h-3.5 text-blue-400" />
+                            <span>AWD / Cholera</span>
+                          </div>
+                          <div className="text-lg font-black font-mono text-blue-400">
+                            {outData?.gastroCasesCount ?? 0}
+                          </div>
+                          <span className="text-[9px] text-slate-500">Watery diarrhea/vomiting</span>
+                        </div>
+
+                        <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
+                          <div className="flex items-center gap-1.5 text-slate-400 text-[10px] mb-1">
+                            <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Effective Reproduction Rt</span>
+                          </div>
+                          <div className="text-lg font-black font-mono text-emerald-400">
+                            {rt.toFixed(2)}
+                          </div>
+                          <span className="text-[9px] text-slate-500">{rt > 1 ? 'Epidemic expansion' : 'Sub-critical transmission'}</span>
+                        </div>
+                      </div>
+
+                      {/* Detected Symptom Triggers */}
+                      <div className="bg-slate-900/90 rounded-lg p-3 border border-slate-800 space-y-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Primary Intake Symptom Triggers Detected:
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(outData?.primarySymptomTriggers || ['Persistent high fever', 'Severe retro-orbital headache', 'Severe dehydration', 'Myalgia']).map((st, i) => (
+                            <span key={i} className="text-[10px] bg-slate-800 text-cyan-300 px-2 py-0.5 rounded border border-slate-700">
+                              {st}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Countermeasure Protocol */}
+                      <div className="bg-rose-950/40 border border-rose-900/50 rounded-lg p-3 text-xs text-rose-200">
+                        <span className="font-bold block text-[10px] uppercase tracking-wider text-rose-400 mb-0.5">
+                          Public Health Countermeasure Protocol:
+                        </span>
+                        <p className="text-[11px] leading-relaxed">
+                          {outData?.publicHealthCountermeasure || 'Deploy rapid point-of-care NS1 dengue/malaria testing and mobilize regional vector fogging teams.'}
+                        </p>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* District Outbreak Ranking Leaderboard (7 Cols) */}
+              <div className="lg:col-span-7 bg-slate-950/80 rounded-xl border border-slate-800 p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-black text-white">
+                      Pakistan Outbreak Hotspot Surveillance Leaderboard
+                    </h4>
+                    <span className="text-[11px] text-slate-400">
+                      Ranked by Real-Time Outbreak Severity Index (Intake Signals + Epidemiological Prior)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {rankedOutbreakDistricts.length} Monitored Districts
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase font-bold">
+                        <th className="py-2 px-2.5">District</th>
+                        <th className="py-2 px-2.5">Province</th>
+                        <th className="py-2 px-2.5">Dominant Syndrome</th>
+                        <th className="py-2 px-2.5 text-center">Score</th>
+                        <th className="py-2 px-2.5 text-center">Rt</th>
+                        <th className="py-2 px-2.5 text-center">Severity</th>
+                        <th className="py-2 px-2.5 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-sans">
+                      {rankedOutbreakDistricts.map(({ district: d, surveillance: s }) => {
+                        const isCurrent = selectedDistrict.id === d.id;
+                        const score = s?.outbreakScore ?? 45;
+                        const severity = s?.outbreakSeverity ?? 'BASELINE';
+
+                        return (
+                          <tr
+                            key={d.id}
+                            className={`transition-colors hover:bg-slate-800/50 cursor-pointer ${
+                              isCurrent ? 'bg-cyan-950/40 border-l-2 border-cyan-400' : ''
+                            }`}
+                            onClick={() => setSelectedDistrict(d)}
+                          >
+                            <td className="py-2.5 px-2.5 font-bold text-white flex items-center gap-1.5">
+                              {severity === 'CRITICAL' && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />}
+                              <span>{d.districtName}</span>
+                            </td>
+                            <td className="py-2.5 px-2.5 text-slate-400 text-[11px]">{d.province}</td>
+                            <td className="py-2.5 px-2.5 text-cyan-300 text-[11px] font-medium max-w-[150px] truncate">
+                              {s?.dominantPathogenSyndrome || 'Endemic Febrile'}
+                            </td>
+                            <td className="py-2.5 px-2.5 text-center font-mono font-bold">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[11px] ${
+                                  score >= 70
+                                    ? 'bg-rose-500/20 text-rose-400'
+                                    : score >= 50
+                                    ? 'bg-orange-500/20 text-orange-400'
+                                    : 'bg-emerald-500/20 text-emerald-400'
+                                }`}
+                              >
+                                {score}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-2.5 text-center font-mono text-slate-300 text-[11px]">
+                              {s?.effectiveRt?.toFixed(2) ?? '1.20'}
+                            </td>
+                            <td className="py-2.5 px-2.5 text-center">
+                              <span
+                                className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                                  severity === 'CRITICAL'
+                                    ? 'bg-rose-900/40 text-rose-300 border border-rose-800'
+                                    : severity === 'ELEVATED'
+                                    ? 'bg-orange-900/40 text-orange-300 border border-orange-800'
+                                    : severity === 'EMERGING'
+                                    ? 'bg-amber-900/40 text-amber-300 border border-amber-800'
+                                    : 'bg-emerald-900/40 text-emerald-300 border border-emerald-800'
+                                }`}
+                              >
+                                {severity}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-2.5 text-right">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedDistrict(d);
+                                  setSelectedDiseaseLayer('INFECTIOUS_OUTBREAK');
+                                }}
+                                className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded cursor-pointer transition-colors"
+                              >
+                                Focus Map &rarr;
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* 1.5. SUB-TAB: NEARBY HEALTH FACILITIES ON MAP & SIMULATED REFERRALS */}
+      {activeSubTab === 'NEARBY_FACILITIES' && (
+        <div className="space-y-6">
+          {/* Active Referral Candidate Patient Banner */}
+          <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 border border-slate-800 shadow-md">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-xl">
+                  <Building2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800">
+                      Tele-Referral & Health Facility Dispatch
+                    </span>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {PAKISTAN_HOSPITALS.length} Monitored Facilities
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-white mt-1">
+                    Nearby Health Facilities & Tele-Referral Network
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Displaying tertiary cardiac centers and district headquarters across Pakistan. Click any facility on the Leaflet map or roster below to initiate a simulated referral request for the active patient.
+                  </p>
+                </div>
+              </div>
+
+              {/* Patient Selector */}
+              {assessments.length > 0 && currentReferralPatient && (
+                <div className="bg-slate-950/90 border border-slate-800 p-3 rounded-xl min-w-[280px] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase text-slate-400">Active Patient:</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      currentReferralPatient.assessmentResult?.triage.level === 'LEVEL_1_EMERGENCY'
+                        ? 'bg-red-500/20 text-red-300 border border-red-800'
+                        : 'bg-cyan-500/20 text-cyan-300 border border-cyan-800'
+                    }`}>
+                      {currentReferralPatient.assessmentResult?.triage.level?.replace(/_/g, ' ') || 'ACTIVE CASE'}
+                    </span>
+                  </div>
+
+                  <select
+                    id="select-referral-patient"
+                    value={activePatientId}
+                    onChange={(e) => setActivePatientId(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 text-white text-xs font-bold rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  >
+                    {assessments.map((a) => (
+                      <option key={a.demographics.patientId} value={a.demographics.patientId}>
+                        {a.demographics.fullName} ({a.demographics.age}y, {a.demographics.district})
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-300 border-t border-slate-800 pt-1.5">
+                    <span>BP: <strong>{currentReferralPatient.vitals.systolicBp || 140}/{currentReferralPatient.vitals.diastolicBp || 90}</strong></span>
+                    <span>HR: <strong>{currentReferralPatient.vitals.heartRate || 80} bpm</strong></span>
+                    <span>SpO₂: <strong>{currentReferralPatient.vitals.oxygenSaturation || 98}%</strong></span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Interactive Map & Facilities Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Map Column (7 Cols) */}
+            <div className="lg:col-span-7 space-y-3">
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-emerald-600" />
+                    <h4 className="text-xs font-bold text-slate-900">
+                      Geographic Distribution of Health Facilities (Leaflet GIS)
+                    </h4>
+                  </div>
+                  <span className="text-[11px] text-slate-500">
+                    Click hospital marker to trigger simulated referral
+                  </span>
+                </div>
+
+                <LeafletPakistanMap
+                  selectedDistrict={selectedDistrict}
+                  onSelectDistrict={(d) => setSelectedDistrict(d)}
+                  selectedDiseaseLayer="HOSPITALS"
+                  onSelectDiseaseLayer={setSelectedDiseaseLayer}
+                  showProvinces={showProvinces}
+                  showHospitals={true}
+                  showDistrictPolygons={showDistrictPolygons}
+                  liveAQIData={liveAQIData}
+                  infectiousSurveillanceData={infectiousSurveillance}
+                  onInspectHospital={(h) => setSelectedReferralHospital(h)}
+                />
+              </div>
+            </div>
+
+            {/* Facilities Directory Roster (5 Cols) */}
+            <div className="lg:col-span-5 space-y-3">
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-emerald-600" />
+                    <h4 className="text-xs font-bold text-slate-900">
+                      Nearby Health Facilities & Emergency Capacity
+                    </h4>
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-500 font-bold">
+                    {PAKISTAN_HOSPITALS.length} Facilities
+                  </span>
+                </div>
+
+                {/* Facilities List */}
+                <div className="space-y-2.5 max-h-[580px] overflow-y-auto pr-1">
+                  {PAKISTAN_HOSPITALS.map((hosp) => {
+                    const occupancyPct = Math.round((hosp.icuBedsOccupied / hosp.icuBedsTotal) * 100);
+                    return (
+                      <div
+                        key={hosp.id}
+                        className="p-3.5 rounded-xl border border-slate-200 hover:border-emerald-300 hover:shadow-xs transition-all bg-slate-50/60 space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
+                                {hosp.type}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {hosp.district}, {hosp.province}
+                              </span>
+                            </div>
+                            <h5 className="font-bold text-slate-900 text-xs mt-1">
+                              {hosp.name}
+                            </h5>
+                          </div>
+
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            hosp.cardiacCatheterizationLab
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {hosp.cardiacCatheterizationLab ? 'Cath Lab' : 'Standard ICU'}
+                          </span>
+                        </div>
+
+                        {/* ICU Capacity Bar */}
+                        <div>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
+                            <span>ICU Bed Load:</span>
+                            <span className="font-mono font-bold text-slate-700">
+                              {hosp.icuBedsOccupied} / {hosp.icuBedsTotal} ({occupancyPct}%)
+                            </span>
+                          </div>
+                          <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${
+                                occupancyPct >= 90
+                                  ? 'bg-red-500'
+                                  : occupancyPct >= 75
+                                  ? 'bg-amber-500'
+                                  : 'bg-emerald-500'
+                              }`}
+                              style={{ width: `${occupancyPct}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                          <a
+                            href={`tel:${hosp.contact}`}
+                            className="text-[11px] text-slate-600 hover:text-slate-900 flex items-center gap-1 font-semibold"
+                          >
+                            <PhoneCall className="w-3 h-3 text-emerald-600" />
+                            <span>{hosp.contact}</span>
+                          </a>
+
+                          <button
+                            id={`btn-refer-hosp-${hosp.id}`}
+                            type="button"
+                            onClick={() => setSelectedReferralHospital(hosp)}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>Simulate Referral &rarr;</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. SUB-TAB: REGIONAL HIGH-RISK CONDITION CLUSTER HEATMAP DASHBOARD */}
+      {activeSubTab === 'RISK_HEATMAP' && (
+        <RiskHeatmapDashboard
+          assessments={assessments}
+          onNavigateTab={() => setActiveSubTab('MAP_ANALYTICS')}
+        />
       )}
 
       {/* 2.5 SUB-TAB: POPULATION HEALTH AGE-SEX PYRAMID */}
       {activeSubTab === 'POPULATION_PYRAMID' && (
         <PopulationPyramid assessments={assessments} />
+      )}
+
+      {/* 2.6 SUB-TAB: POPULATION AGE DISTRIBUTION (RECHARTS) */}
+      {activeSubTab === 'AGE_DISTRIBUTION' && (
+        <DistrictAgeDistributionChart
+          districts={REAL_PAKISTAN_DISTRICTS}
+          assessmentRecords={assessments}
+          onSelectDistrict={(distName) => {
+            const found = REAL_PAKISTAN_DISTRICTS.find(
+              (d) => d.districtName.toLowerCase() === distName.toLowerCase()
+            );
+            if (found) {
+              setSelectedDistrict(found);
+              updateRealTimeTelemetry(found);
+            }
+          }}
+        />
       )}
 
       {/* 3. SUB-TAB 2: PYTHON AI/ML PREDICTIVE ENGINE & SHAP EXPLAINABILITY */}
@@ -1223,22 +1814,50 @@ export const GeoAICommandCenter: React.FC<GeoAICommandCenterProps> = ({
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-              <a
-                href={`tel:${selectedHospitalModal.contact}`}
-                className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-md"
-              >
-                <PhoneCall className="w-3.5 h-3.5" />
-                <span>Call Emergency Dispatch ({selectedHospitalModal.contact})</span>
-              </a>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`tel:${selectedHospitalModal.contact}`}
+                  className="bg-slate-100 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-slate-200 transition-all"
+                >
+                  <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Call ({selectedHospitalModal.contact})</span>
+                </a>
+                <button
+                  id="btn-modal-initiate-referral"
+                  type="button"
+                  onClick={() => {
+                    setSelectedReferralHospital(selectedHospitalModal);
+                    setSelectedHospitalModal(null);
+                  }}
+                  className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-700 transition-all shadow-md cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Simulate Referral Request &rarr;</span>
+                </button>
+              </div>
               <button
                 onClick={() => setSelectedHospitalModal(null)}
-                className="bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-200"
+                className="bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-200 cursor-pointer"
               >
                 Close
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* 6.5. Simulated Patient Referral Modal */}
+      {selectedReferralHospital && currentReferralPatient && (
+        <SimulatedReferralModal
+          hospital={selectedReferralHospital}
+          activePatient={currentReferralPatient}
+          onClose={() => setSelectedReferralHospital(null)}
+          onConfirmReferral={(refData) => {
+            if (onInitiateReferral) {
+              onInitiateReferral(selectedReferralHospital, currentReferralPatient);
+            }
+          }}
+        />
       )}
 
       {/* 7. National District Epidemiological Stratification Data Table */}

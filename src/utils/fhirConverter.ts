@@ -1,4 +1,5 @@
 import { PatientAssessmentRecord } from '../types/clinical';
+import { performFullClinicalAnalysis } from '../clinical/mlRiskEngine';
 
 /**
  * HL7 FHIR R4 standard JSON generator and parser
@@ -338,9 +339,25 @@ export function exportAllToFHIRJSON(records: PatientAssessmentRecord[]): void {
 }
 
 /**
- * Export patient roster to CSV format for hospital database interoperability
+ * Export patient roster to CSV format for hospital database interoperability and administrative reporting
  */
-export function exportPatientsToCSV(records: PatientAssessmentRecord[]): void {
+export function exportPatientsToCSV(
+  records: PatientAssessmentRecord[],
+  options?: {
+    filename?: string;
+    reportTitle?: string;
+  }
+): void {
+  const sanitize = (val: any): string => {
+    if (val === null || val === undefined) return '""';
+    let str = String(val).trim();
+    // Formula injection mitigation (RFC-4180 safe)
+    if (/^[=+\-@\t\r]/.test(str)) {
+      str = `'${str}`;
+    }
+    return `"${str.replace(/"/g, '""')}"`;
+  };
+
   const headers = [
     'Patient ID',
     'MRN',
@@ -349,52 +366,254 @@ export function exportPatientsToCSV(records: PatientAssessmentRecord[]): void {
     'Sex',
     'District',
     'Province',
-    'Systolic BP',
-    'Diastolic BP',
-    'Heart Rate',
-    'SpO2 %',
-    'Blood Glucose',
-    'BMI',
-    'CVD 10-Yr Risk %',
+    'Systolic BP (mmHg)',
+    'Diastolic BP (mmHg)',
+    'Heart Rate (bpm)',
+    'SpO2 (%)',
+    'Blood Glucose (mg/dL)',
+    'BMI (kg/m²)',
+    'CVD 10-Yr Risk (%)',
+    'CVD Risk Category',
     'Triage Level',
     'Emergency Flag',
+    'Disposition / Discharge Status',
+    'Pending Labs / Missing Investigations',
+    'Follow-up Tasks / Recalls',
     'Doctor Reviewed',
-    'Physician Agreement',
-    'Doctor Diagnosis',
-    'Assessment Date',
+    'Reviewing Physician',
+    'Physician License (PMDC)',
+    'Primary Clinical Diagnosis',
+    'Prescribed Medications',
+    'Ordered Investigations',
+    'Referral Required',
+    'Referral Facility',
+    'Assessment Date & Time',
   ];
 
-  const rows = records.map((r) => [
-    `"${r.demographics.patientId}"`,
-    `"${r.demographics.mrn || ''}"`,
-    `"${r.demographics.fullName.replace(/"/g, '""')}"`,
-    r.demographics.age,
-    `"${r.demographics.sex}"`,
-    `"${r.demographics.district}"`,
-    `"${r.demographics.province}"`,
-    r.vitals.systolicBp || '',
-    r.vitals.diastolicBp || '',
-    r.vitals.heartRate || '',
-    r.vitals.oxygenSaturation || '',
-    r.vitals.bloodGlucoseMgDl || r.labs.glucoseFastingMgDl || '',
-    r.profile.bmi ? r.profile.bmi.toFixed(1) : '',
-    r.assessmentResult ? ((r.assessmentResult.risks.cardiovascular.riskScore || 0) * 100).toFixed(0) : '',
-    `"${r.assessmentResult?.triage.levelName || 'Pending'}"`,
-    r.assessmentResult?.isEmergency ? 'YES' : 'NO',
-    r.doctorReview ? 'YES' : 'NO',
-    `"${r.doctorReview?.aiAgreement || 'Pending'}"`,
-    `"${(r.doctorReview?.doctorDiagnosis || '').replace(/"/g, '""')}"`,
-    `"${r.assessmentResult?.timestamp || ''}"`,
-  ]);
+  const rows = records.map((r) => {
+    const isEmergency = r.assessmentResult?.triage.level === 'LEVEL_1_EMERGENCY' || r.assessmentResult?.isEmergency;
+    const disposition = r.doctorReview?.referralRequired
+      ? 'Specialist Referral'
+      : isEmergency
+      ? 'Emergency Admission'
+      : r.doctorReview
+      ? 'Discharged Home'
+      : 'In-Clinic / Active Assessment';
 
-  const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\r\n');
+    // Pending labs
+    const pendingLabsList: string[] = [];
+    if (r.doctorReview?.orderedInvestigations?.length) {
+      pendingLabsList.push(...r.doctorReview.orderedInvestigations);
+    }
+    if (!r.labs.creatinineMgDl && !r.labs.egfr) pendingLabsList.push('Creatinine/eGFR');
+    if (!r.labs.glucoseFastingMgDl && !r.labs.hba1cPercent && (r.profile.diabetesHistory || (r.vitals.bloodGlucoseMgDl || 0) >= 140)) {
+      pendingLabsList.push('HbA1c/FPG');
+    }
+    if (!r.labs.totalCholesterolMgDl && !r.labs.ldlCholesterolMgDl && (r.profile.hypertensionHistory || (r.assessmentResult?.risks.cardiovascular.riskScore || 0) >= 0.1)) {
+      pendingLabsList.push('Lipids');
+    }
+
+    // Follow up task
+    const followUpTask = isEmergency
+      ? 'Immediate Resuscitation & Bedside Re-eval'
+      : r.assessmentResult?.triage.level === 'LEVEL_2_URGENT'
+      ? 'Urgent Review (24-48h)'
+      : r.doctorReview?.referralRequired
+      ? `Referral Follow-up: ${r.doctorReview.referralFacility || 'Tertiary Center'}`
+      : r.assessmentResult?.triage.level === 'LEVEL_3_PRIORITY'
+      ? 'Priority Follow-up (7 Days)'
+      : 'Routine Recall (30 Days)';
+
+    const cvdPct = r.assessmentResult ? ((r.assessmentResult.risks.cardiovascular.riskScore || 0) * 100).toFixed(0) : '';
+    const cvdCategory = r.assessmentResult?.risks.cardiovascular.riskCategory || 'PENDING';
+
+    return [
+      sanitize(r.demographics.patientId),
+      sanitize(r.demographics.mrn || ''),
+      sanitize(r.demographics.fullName),
+      r.demographics.age,
+      sanitize(r.demographics.sex),
+      sanitize(r.demographics.district),
+      sanitize(r.demographics.province),
+      r.vitals.systolicBp || '',
+      r.vitals.diastolicBp || '',
+      r.vitals.heartRate || '',
+      r.vitals.oxygenSaturation || '',
+      r.vitals.bloodGlucoseMgDl || r.labs.glucoseFastingMgDl || '',
+      r.profile.bmi ? r.profile.bmi.toFixed(1) : '',
+      cvdPct,
+      sanitize(cvdCategory),
+      sanitize(r.assessmentResult?.triage.levelName || 'Pending Assessment'),
+      isEmergency ? 'YES' : 'NO',
+      sanitize(disposition),
+      sanitize(pendingLabsList.join('; ')),
+      sanitize(followUpTask),
+      r.doctorReview ? 'YES' : 'NO',
+      sanitize(r.doctorReview?.doctorName || 'Pending Physician Review'),
+      sanitize(r.doctorReview?.doctorLicenseNo || ''),
+      sanitize(r.doctorReview?.doctorDiagnosis || 'Pending Diagnosis'),
+      sanitize((r.doctorReview?.prescribedMedications || []).map((p) => `${p.drugName} ${p.dosage} ${p.frequency}`).join('; ')),
+      sanitize((r.doctorReview?.orderedInvestigations || []).join('; ')),
+      r.doctorReview?.referralRequired ? 'YES' : 'NO',
+      sanitize(r.doctorReview?.referralFacility || ''),
+      sanitize(r.assessmentResult?.timestamp || r.vitals.measurementTime || new Date().toISOString()),
+    ];
+  });
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((row) => row.join(','))].join('\r\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `Hospital_Patient_Roster_${new Date().toISOString().slice(0, 10)}.csv`;
+  const defaultFilename = `HIS_Hospital_Patient_Registry_${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = options?.filename || defaultFilename;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Parse an HL7 FHIR R4 Bundle into internal PatientAssessmentRecord entities
+ */
+export function parseFHIRBundleToRecords(bundle: any): PatientAssessmentRecord[] {
+  if (!bundle) return [];
+  const entries: any[] = Array.isArray(bundle)
+    ? bundle
+    : bundle.entry
+    ? bundle.entry.map((e: any) => e.resource || e)
+    : [bundle];
+
+  const patientMap = new Map<string, any>();
+  const obsMap = new Map<string, any[]>();
+
+  for (const item of entries) {
+    if (item.resourceType === 'Patient') {
+      patientMap.set(item.id || item.identifier?.[0]?.value || `P-${Math.random()}`, item);
+    } else if (item.resourceType === 'Observation') {
+      const ref = item.subject?.reference?.replace('Patient/', '') || 'GLOBAL';
+      const list = obsMap.get(ref) || [];
+      list.push(item);
+      obsMap.set(ref, list);
+    }
+  }
+
+  // If no Patient resources found, create a synthesized patient from available observations
+  if (patientMap.size === 0 && entries.length > 0) {
+    patientMap.set('IMPORTED-PATIENT', {
+      id: `P-FHIR-${Date.now().toString().slice(-4)}`,
+      name: [{ text: 'Imported FHIR Record' }],
+      gender: 'unknown',
+    });
+  }
+
+  const outputRecords: PatientAssessmentRecord[] = [];
+
+  for (const [pId, pResource] of patientMap.entries()) {
+    const rawName = pResource.name?.[0]?.text ||
+      `${pResource.name?.[0]?.given?.join(' ') || ''} ${pResource.name?.[0]?.family || ''}`.trim() ||
+      `Patient ${pId}`;
+
+    const mrnIdentifier = pResource.identifier?.find((i: any) => i.type?.coding?.[0]?.code === 'MR' || i.system?.includes('mrn'));
+    const mrn = mrnIdentifier?.value || `MRN-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const genderStr = (pResource.gender || 'MALE').toUpperCase();
+    const sex: 'MALE' | 'FEMALE' | 'OTHER' = genderStr.includes('FEM') ? 'FEMALE' : genderStr.includes('MAL') ? 'MALE' : 'OTHER';
+
+    const address = pResource.address?.[0] || {};
+    const district = address.district || 'Lahore';
+    const province = address.state || 'Punjab';
+
+    const patientObservations = obsMap.get(pId) || obsMap.get('GLOBAL') || [];
+
+    let sbp = 130;
+    let dbp = 80;
+    let hr = 75;
+    let spo2 = 98;
+    let glucose = 110;
+
+    for (const obs of patientObservations) {
+      const code = obs.code?.coding?.[0]?.code;
+      if (code === '85354-9' && obs.component) {
+        // Blood pressure panel
+        for (const comp of obs.component) {
+          const cCode = comp.code?.coding?.[0]?.code;
+          if (cCode === '8480-6') sbp = Number(comp.valueQuantity?.value) || sbp;
+          if (cCode === '8462-4') dbp = Number(comp.valueQuantity?.value) || dbp;
+        }
+      } else if (code === '8867-4') {
+        hr = Number(obs.valueQuantity?.value) || hr;
+      } else if (code === '2708-6') {
+        spo2 = Number(obs.valueQuantity?.value) || spo2;
+      } else if (code === '1558-6') {
+        glucose = Number(obs.valueQuantity?.value) || glucose;
+      }
+    }
+
+    const demographics = {
+      patientId: pId.startsWith('P-') ? pId : `P-FHIR-${pId}`,
+      mrn,
+      fullName: rawName,
+      age: 52,
+      sex,
+      province,
+      district,
+      tehsil: address.line?.[0] || 'Central',
+      unionCouncil: address.line?.[1] || 'UC-1',
+      consentGiven: true,
+    };
+
+    const profile = {
+      heightCm: 170,
+      weightKg: 70,
+      bmi: 24.2,
+      smokingStatus: 'NEVER' as const,
+      tobaccoUse: 'NONE' as const,
+      physicalActivity: 'MODERATE' as const,
+      pregnancyStatus: 'NOT_APPLICABLE' as const,
+      previousCVD: false,
+      previousStroke: false,
+      diabetesHistory: glucose > 126,
+      hypertensionHistory: sbp >= 140 || dbp >= 90,
+      kidneyDisease: false,
+      liverDisease: false,
+      asthmaCOPD: false,
+      familyHistoryCVD: false,
+      familyHistoryDiabetes: false,
+      familyHistoryStroke: false,
+      currentMedications: [],
+      drugAllergies: [],
+    };
+
+    const vitals = {
+      systolicBp: sbp,
+      diastolicBp: dbp,
+      heartRate: hr,
+      respiratoryRate: 16,
+      temperatureC: 37.0,
+      oxygenSaturation: spo2,
+      bloodGlucoseMgDl: glucose,
+      glucoseMeasurementType: 'FASTING' as const,
+      measurementSource: 'CLINIC_DEVICE' as const,
+      qualityFlag: 'VALID' as const,
+      measurementTime: new Date().toISOString(),
+    };
+
+    const labs = {
+      glucoseFastingMgDl: glucose,
+    };
+
+    const assessmentResult = performFullClinicalAnalysis(demographics, profile, vitals, labs, []);
+
+    outputRecords.push({
+      demographics,
+      profile,
+      vitals,
+      labs,
+      symptoms: [],
+      assessmentResult,
+    });
+  }
+
+  return outputRecords;
 }
